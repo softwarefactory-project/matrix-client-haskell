@@ -7,6 +7,8 @@ description:
     .
     Use this library to interact with matrix server.
     .
+    Read the "Network.Matrix.Tutorial" for a detailed tutorial.
+    .
 homepage:            https://github.com/softwarefactory-project/matrix-client-haskell#readme
 bug-reports:         https://github.com/softwarefactory-project/matrix-client-haskell/issues
 license:             Apache-2.0
@@ -18,7 +20,6 @@ category:            Network
 build-type:          Simple
 extra-doc-files:     CHANGELOG.md
                      README.md
-extra-source-files:  test/data/*.json
 tested-with:         GHC == 8.10.4
 
 source-repository head
@@ -48,6 +49,7 @@ library
   import:              common-options
   build-depends:       SHA                    ^>= 1.6
                      , base64
+                     , bytestring
                      , http-client            >= 0.5.0    && < 0.8
                      , http-client-tls        >= 0.2.0    && < 0.4
                      , text                   >= 0.11.1.0 && < 1.3
@@ -55,7 +57,8 @@ library
   hs-source-dirs:      src
   exposed-modules:     Network.Matrix.Client
                      , Network.Matrix.Identity
-  other-modules:       Network.Matrix.Internal
+                     , Network.Matrix.Internal
+                     , Network.Matrix.Tutorial
 
 test-suite unit
   import:             common-options
