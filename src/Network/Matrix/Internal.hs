@@ -48,10 +48,10 @@ decodeResp resp = case eitherDecode resp of
     Right me -> Left me
     Left _ -> error $ "Could not decode: " <> err
 
-newtype WhoAmI = WhoAmI Text deriving (Show, Eq)
+newtype UserID = UserID Text deriving (Show, Eq)
 
-instance FromJSON WhoAmI where
-  parseJSON (Object v) = WhoAmI <$> v .: "user_id"
+instance FromJSON UserID where
+  parseJSON (Object v) = UserID <$> v .: "user_id"
   parseJSON _ = mzero
 
 data MatrixError = MatrixError

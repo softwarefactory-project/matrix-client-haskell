@@ -5,6 +5,7 @@
             vars:
               ghc_version: 8.8
               cabal_install_args: "--lib"
+              cabal_build_args: "--write-ghc-environment-files=always"
             nodeset:
               nodes:
                 - name: container

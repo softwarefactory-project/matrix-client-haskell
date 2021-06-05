@@ -19,7 +19,7 @@ spec = describe "unit tests" $ do
       `shouldBe` Left (MatrixError "TEST" "a error" Nothing)
   it "decode response" $
     decodeResp "{\"user_id\": \"@tristanc_:matrix.org\"}"
-      `shouldBe` Right (WhoAmI "@tristanc_:matrix.org")
+      `shouldBe` Right (UserID "@tristanc_:matrix.org")
   it "encode room message" $
     encode (RoomMessageText (MessageText "Hello" Nothing Nothing))
       `shouldBe` "{\"msgtype\":\"m.text\",\"body\":\"Hello\"}"

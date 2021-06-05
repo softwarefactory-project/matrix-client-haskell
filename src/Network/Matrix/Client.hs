@@ -11,7 +11,7 @@ module Network.Matrix.Client
     createSession,
 
     -- * User data
-    WhoAmI (..),
+    UserID (..),
     getTokenOwner,
 
     -- * Room participation
@@ -58,7 +58,7 @@ doRequest :: FromJSON a => ClientSession -> HTTP.Request -> MatrixIO a
 doRequest ClientSession {..} = doRequest' manager
 
 -- | 'getTokenOwner' gets information about the owner of a given access token.
-getTokenOwner :: ClientSession -> MatrixIO WhoAmI
+getTokenOwner :: ClientSession -> MatrixIO UserID
 getTokenOwner session =
   doRequest session =<< mkRequest session True "/_matrix/client/r0/account/whoami"
 
