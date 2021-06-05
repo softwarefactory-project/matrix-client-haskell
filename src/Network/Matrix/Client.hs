@@ -1,3 +1,4 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
@@ -7,8 +8,12 @@ module Network.Matrix.Client
   ( -- * Client
     ClientSession,
     MatrixToken (..),
-    MatrixIO,
+    getTokenFromEnv,
     createSession,
+
+    -- * API
+    MatrixIO,
+    MatrixError (..),
 
     -- * User data
     UserID (..),
@@ -17,6 +22,7 @@ module Network.Matrix.Client
     -- * Room participation
     TxnID (..),
     sendMessage,
+    module Network.Matrix.Events,
 
     -- * Room membership
     RoomID (..),
@@ -27,6 +33,7 @@ where
 
 import Control.Monad (mzero)
 import Data.Aeson (FromJSON (..), Value (Object), encode, (.:))
+import Data.Hashable (Hashable)
 import Data.Text (Text)
 import qualified Network.HTTP.Client as HTTP
 import Network.Matrix.Events
@@ -78,7 +85,7 @@ sendMessage session (RoomID roomId) event (TxnID txnId) = do
     path = "/_matrix/client/r0/rooms/" <> roomId <> "/send/" <> eventId <> "/" <> txnId
     eventId = eventType event
 
-newtype RoomID = RoomID Text deriving (Show, Eq)
+newtype RoomID = RoomID Text deriving (Show, Eq, Hashable)
 
 instance FromJSON RoomID where
   parseJSON (Object v) = RoomID <$> v .: "room_id"

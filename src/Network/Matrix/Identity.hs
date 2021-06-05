@@ -7,21 +7,26 @@ module Network.Matrix.Identity
   ( -- * Client
     IdentitySession,
     MatrixToken (..),
+    getTokenFromEnv,
     createIdentitySession,
+
+    -- * API
+    MatrixIO,
+    MatrixError (..),
 
     -- * User data
     UserID (..),
-    getTokenOwner,
+    getIdentityTokenOwner,
 
     -- * Association lookup
     HashDetails (..),
+    hashDetails,
     Identity (..),
+    identityLookup,
     HashedAddress,
     IdentityLookupRequest,
     IdentityLookupResponse,
-    identityLookup,
     identitiesLookup,
-    hashDetails,
     mkIdentityLookupRequest,
     toHashedAddress,
     lookupIdentity,
@@ -68,10 +73,10 @@ mkRequest IdentitySession {..} = mkRequest' baseUrl token
 doRequest :: FromJSON a => IdentitySession -> HTTP.Request -> MatrixIO a
 doRequest IdentitySession {..} = doRequest' manager
 
--- | 'getTokenOwner' gets information about the owner of a given access token.
-getTokenOwner :: IdentitySession -> MatrixIO UserID
-getTokenOwner session =
-  doRequest session =<< mkRequest session True "/_matrix/client/r0/account/whoami"
+-- | 'getIdentityTokenOwner' gets information about the owner of a given access token.
+getIdentityTokenOwner :: IdentitySession -> MatrixIO UserID
+getIdentityTokenOwner session =
+  doRequest session =<< mkRequest session True "/_matrix/identity/v2/account"
 
 data HashDetails = HashDetails
   { hdAlgorithms :: NonEmpty Text,
@@ -86,6 +91,15 @@ instance FromJSON HashDetails where
 hashDetails :: IdentitySession -> MatrixIO HashDetails
 hashDetails session =
   doRequest session =<< mkRequest session True "/_matrix/identity/v2/hash_details"
+
+-- | Use 'identityLookup' to lookup a single identity, otherwise uses the full 'identitiesLookup'.
+identityLookup :: IdentitySession -> HashDetails -> Identity -> MatrixIO (Maybe UserID)
+identityLookup session hd ident = do
+  fmap toUserIDM <$> identitiesLookup session ilr
+  where
+    toUserIDM = lookupIdentity address
+    address = toHashedAddress hd ident
+    ilr = mkIdentityLookupRequest hd [address]
 
 data IdentityLookupRequest = IdentityLookupRequest
   { ilrHash :: Text,
@@ -133,14 +147,6 @@ identitiesLookup session ilr = do
             "algorithm" .= ilrHash ilr,
             "pepper" .= ilrPepper ilr
           ]
-
-identityLookup :: IdentitySession -> HashDetails -> Identity -> MatrixIO (Maybe UserID)
-identityLookup session hd ident = do
-  fmap toUserIDM <$> identitiesLookup session ilr
-  where
-    toUserIDM = lookupIdentity address
-    address = toHashedAddress hd ident
-    ilr = mkIdentityLookupRequest hd [address]
 
 -- | Hash encoding for lookup
 -- >>> encodeSHA256 "alice@example.com email matrixrocks"
