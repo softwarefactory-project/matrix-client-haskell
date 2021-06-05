@@ -3,6 +3,9 @@
 -- | The matrix client specification tests
 module Main (main) where
 
+import Data.Aeson (encode)
+import Network.Matrix.Client
+import Network.Matrix.Events
 import Network.Matrix.Internal
 import Test.Hspec
 
@@ -17,3 +20,6 @@ spec = describe "unit tests" $ do
   it "decode response" $
     decodeResp "{\"user_id\": \"@tristanc_:matrix.org\"}"
       `shouldBe` Right (WhoAmI "@tristanc_:matrix.org")
+  it "encode room message" $
+    encode (RoomMessageText (MessageText "Hello" Nothing Nothing))
+      `shouldBe` "{\"msgtype\":\"m.text\",\"body\":\"Hello\"}"

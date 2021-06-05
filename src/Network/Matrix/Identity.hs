@@ -10,8 +10,8 @@ module Network.Matrix.Identity
     createSession,
 
     -- * User data
-    getTokenOwner,
     WhoAmI (..),
+    getTokenOwner,
   )
 where
 

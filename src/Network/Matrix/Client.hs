@@ -7,19 +7,33 @@ module Network.Matrix.Client
   ( -- * Client
     ClientSession,
     MatrixToken (..),
+    MatrixIO,
     createSession,
 
     -- * User data
-    getTokenOwner,
     WhoAmI (..),
+    getTokenOwner,
+
+    -- * Room participation
+    TxnID (..),
+    sendMessage,
+
+    -- * Room membership
+    RoomID (..),
+    getJoinedRooms,
+    joinRoomById,
   )
 where
 
-import Data.Aeson (FromJSON, eitherDecode)
-import Data.Maybe (fromMaybe)
+import Control.Monad (mzero)
+import Data.Aeson (FromJSON (..), Value (Object), encode, (.:))
 import Data.Text (Text)
 import qualified Network.HTTP.Client as HTTP
+import Network.Matrix.Events
 import Network.Matrix.Internal
+
+-- $setup
+-- >>> import Data.Aeson (decode)
 
 -- | The session record, use 'createSession' to create it.
 data ClientSession = ClientSession
@@ -47,3 +61,48 @@ doRequest ClientSession {..} = doRequest' manager
 getTokenOwner :: ClientSession -> MatrixIO WhoAmI
 getTokenOwner session =
   doRequest session =<< mkRequest session True "/_matrix/client/r0/account/whoami"
+
+newtype TxnID = TxnID Text deriving (Show, Eq)
+
+sendMessage :: ClientSession -> RoomID -> Event -> TxnID -> MatrixIO EventID
+sendMessage session (RoomID roomId) event (TxnID txnId) = do
+  request <- mkRequest session True path
+  doRequest
+    session
+    ( request
+        { HTTP.method = "PUT",
+          HTTP.requestBody = HTTP.RequestBodyLBS $ encode event
+        }
+    )
+  where
+    path = "/_matrix/client/r0/rooms/" <> roomId <> "/send/" <> eventId <> "/" <> txnId
+    eventId = eventType event
+
+newtype RoomID = RoomID Text deriving (Show, Eq)
+
+instance FromJSON RoomID where
+  parseJSON (Object v) = RoomID <$> v .: "room_id"
+  parseJSON _ = mzero
+
+-- | A newtype wrapper to decoded nested list
+--
+-- >>> decode "{\"joined_rooms\": [\"!foo:example.com\"]}" :: Maybe JoinedRooms
+-- Just (JoinedRooms {unRooms = [RoomID "!foo:example.com"]})
+newtype JoinedRooms = JoinedRooms {unRooms :: [RoomID]} deriving (Show)
+
+instance FromJSON JoinedRooms where
+  parseJSON (Object v) = do
+    rooms <- v .: "joined_rooms"
+    pure . JoinedRooms $ RoomID <$> rooms
+  parseJSON _ = mzero
+
+getJoinedRooms :: ClientSession -> MatrixIO [RoomID]
+getJoinedRooms session = do
+  request <- mkRequest session True "/_matrix/client/r0/joined_rooms"
+  response <- doRequest session request
+  pure $ unRooms <$> response
+
+joinRoomById :: ClientSession -> RoomID -> MatrixIO RoomID
+joinRoomById session (RoomID roomId) = do
+  request <- mkRequest session True $ "/_matrix/client/r0/rooms/" <> roomId <> "/join"
+  doRequest session (request {HTTP.method = "POST"})
