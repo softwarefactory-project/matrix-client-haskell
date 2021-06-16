@@ -13,6 +13,7 @@ module Network.Matrix.Identity
     -- * API
     MatrixIO,
     MatrixError (..),
+    retry,
 
     -- * User data
     UserID (..),
