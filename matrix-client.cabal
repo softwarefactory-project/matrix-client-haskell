@@ -73,6 +73,7 @@ test-suite unit
   build-depends:      base
                     , matrix-client
                     , hspec >= 2
+                    , aeson-pretty
 
 test-suite doctest
   type:               exitcode-stdio-1.0
