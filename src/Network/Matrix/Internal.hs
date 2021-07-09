@@ -83,11 +83,11 @@ type MatrixIO a = IO (Either MatrixError a)
 retry :: (MonadMask m, MonadIO m) => m a -> m a
 retry action =
   Retry.recovering
-    (Retry.exponentialBackoff backoff <> Retry.limitRetries 5)
+    (Retry.exponentialBackoff backoff <> Retry.limitRetries 7)
     [handler]
     (const action)
   where
-    backoff = 500000 -- 500ms
+    backoff = 1000000 -- 100ms
     -- Log network error
     handler (RetryStatus num _ _) = Handler $ \case
       HTTP.HttpExceptionRequest req ctx -> do
