@@ -1,9 +1,11 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | The matrix client specification tests
 module Main (main) where
 
-import Data.Aeson.Encode.Pretty (encodePretty)
+import qualified Data.Aeson.Encode.Pretty as Aeson
+import Data.Text (Text)
 import Network.Matrix.Client
 import Network.Matrix.Internal
 import Test.Hspec
@@ -21,4 +23,9 @@ spec = describe "unit tests" $ do
       `shouldBe` Right (UserID "@tristanc_:matrix.org")
   it "encode room message" $
     encodePretty (RoomMessageText (MessageText "Hello" Nothing Nothing))
-      `shouldBe` "{\n    \"msgtype\": \"m.text\",\n    \"body\": \"Hello\"\n}"
+      `shouldBe` "{\"body\":\"Hello\",\"msgtype\":\"m.text\"}"
+  where
+    encodePretty =
+      Aeson.encodePretty'
+        ( Aeson.defConfig {Aeson.confIndent = Aeson.Spaces 0, Aeson.confCompare = compare @Text}
+        )

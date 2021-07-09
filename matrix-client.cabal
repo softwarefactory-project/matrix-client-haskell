@@ -71,9 +71,10 @@ test-suite unit
   hs-source-dirs:     test, src
   main-is:            Spec.hs
   build-depends:      base
-                    , matrix-client
-                    , hspec >= 2
                     , aeson-pretty
+                    , hspec >= 2
+                    , matrix-client
+                    , text
 
 test-suite doctest
   type:               exitcode-stdio-1.0
