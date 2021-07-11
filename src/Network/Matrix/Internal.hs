@@ -5,10 +5,10 @@
 -- | This module contains low-level HTTP utility
 module Network.Matrix.Internal where
 
-import Control.Exception (throwIO)
+import Control.Concurrent (threadDelay)
+import Control.Exception (Exception, throw, throwIO)
 import Control.Monad (mzero, unless, void)
-import Control.Monad.Catch (Handler (Handler), MonadMask)
-import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.Catch (Handler (Handler))
 import Control.Retry (RetryStatus (..))
 import qualified Control.Retry as Retry
 import Data.Aeson (FromJSON (..), Value (Object), eitherDecode, (.:), (.:?))
@@ -87,6 +87,10 @@ data MatrixError = MatrixError
   }
   deriving (Show, Eq)
 
+data MatrixException = MatrixRateLimit deriving (Show)
+
+instance Exception MatrixException
+
 instance FromJSON MatrixError where
   parseJSON (Object v) =
     MatrixError
@@ -99,27 +103,41 @@ instance FromJSON MatrixError where
 type MatrixIO a = IO (Either MatrixError a)
 
 -- | Retry 5 times network action, doubling backoff each time
-retry :: (MonadMask m, MonadIO m) => m a -> m a
-retry action =
+retry' :: Int -> (Text -> IO ()) -> MatrixIO a -> MatrixIO a
+retry' limit logRetry action =
   Retry.recovering
-    (Retry.exponentialBackoff backoff <> Retry.limitRetries 7)
-    [handler]
-    (const action)
+    (Retry.exponentialBackoff backoff <> Retry.limitRetries limit)
+    [handler, rateLimitHandler]
+    (const checkAction)
   where
-    backoff = 1000000 -- 100ms
+    checkAction = do
+      res <- action
+      case res of
+        Left me@(MatrixError _ _ (Just ms)) -> do
+          -- Reponse contains a retry_after_ms
+          logRetry $ "RateLimit: " <> pack (show me)
+          threadDelay (ms * 1000)
+          throw MatrixRateLimit
+        _ -> pure res
+
+    backoff = 1000000 -- 1sec
+    rateLimitHandler _ = Handler $ \case
+      MatrixRateLimit -> pure True
     -- Log network error
     handler (RetryStatus num _ _) = Handler $ \case
       HTTP.HttpExceptionRequest req ctx -> do
         let url = decodeUtf8 (HTTP.host req) <> ":" <> pack (show (HTTP.port req)) <> decodeUtf8 (HTTP.path req)
             arg = decodeUtf8 $ HTTP.queryString req
             loc = if num == 0 then url <> arg else url
-        liftIO $
-          hPutStrLn stderr $
-            "NetworkFailure: "
-              <> pack (show num)
-              <> "/5 "
-              <> loc
-              <> " failed: "
-              <> pack (show ctx)
+        logRetry $
+          "NetworkFailure: "
+            <> pack (show num)
+            <> "/5 "
+            <> loc
+            <> " failed: "
+            <> pack (show ctx)
         pure True
       HTTP.InvalidUrlException _ _ -> pure False
+
+retry :: MatrixIO a -> MatrixIO a
+retry = retry' 7 (hPutStrLn stderr)
