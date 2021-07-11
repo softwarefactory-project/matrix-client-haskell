@@ -21,6 +21,9 @@ module Network.Matrix.Tutorial
 
     -- * Create a session
     -- $session
+
+    -- * Lookup identity
+    -- $identity
   )
 where
 
@@ -53,3 +56,18 @@ where
 --   > > sess <- createSession "https://matrix.org" token
 --   > > getTokenOwner sess
 --   > Right (WhoAmI "@tristanc_:matrix.org")
+
+-- $identity
+--  To use the Identity api you need another token. Get it by running these commands:
+--
+--  > $ MATRIX_OPENID=$(curl -XPOST https://matrix.org/_matrix/client/r0/user/${USER}/openid/request_token -H "Authorization: Bearer ${MATRIX_TOKEN}" -d '{}')
+--  > $ export MATRIX_IDENTITY_TOKEN=$(curl -XPOST https://matrix.org/_matrix/identity/v2/account/register -d "${MATRIX_OPENID}" | jq -r '.access_token')
+--
+--  Then here is how to lookup a matrix identity:
+--
+--  > > import Network.Matrix.Identity
+--  > > tokenId <- getTokenFromEnv "MATRIX_IDENTITY_TOKEN"
+--  > > sessId <- createIdentitySession "https://matrix.org" tokenId
+--  > > Right hd <- hashDetails sessId
+--  > > identityLookup sessId hd (Email "tdecacqu@redhat.com")
+--  > Right (Just (UserID "@tristanc_:matrix.org"))
