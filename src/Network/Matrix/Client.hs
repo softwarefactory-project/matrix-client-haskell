@@ -29,6 +29,7 @@ module Network.Matrix.Client
     RoomID (..),
     getJoinedRooms,
     joinRoomById,
+    leaveRoomById,
   )
 where
 
@@ -114,3 +115,13 @@ joinRoomById :: ClientSession -> RoomID -> MatrixIO RoomID
 joinRoomById session (RoomID roomId) = do
   request <- mkRequest session True $ "/_matrix/client/r0/rooms/" <> roomId <> "/join"
   doRequest session (request {HTTP.method = "POST"})
+
+leaveRoomById :: ClientSession -> RoomID -> MatrixIO ()
+leaveRoomById session (RoomID roomId) = do
+  request <- mkRequest session True $ "/_matrix/client/r0/rooms/" <> roomId <> "/leave"
+  fmap ensureEmptyObject <$> doRequest session (request {HTTP.method = "POST"})
+  where
+    ensureEmptyObject :: Value -> ()
+    ensureEmptyObject value = case value of
+      Object xs | xs == mempty -> ()
+      _anyOther -> error $ "Unknown leave response: " <> show value
