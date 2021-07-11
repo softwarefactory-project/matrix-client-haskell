@@ -5,18 +5,20 @@
 -- | This module contains low-level HTTP utility
 module Network.Matrix.Internal where
 
-import Control.Monad (mzero)
+import Control.Exception (throwIO)
+import Control.Monad (mzero, unless, void)
 import Control.Monad.Catch (Handler (Handler), MonadMask)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Retry (RetryStatus (..))
 import qualified Control.Retry as Retry
 import Data.Aeson (FromJSON (..), Value (Object), eitherDecode, (.:), (.:?))
-import Data.ByteString.Lazy (ByteString)
+import Data.ByteString.Lazy (ByteString, toStrict)
 import Data.Text (Text, pack, unpack)
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import Data.Text.IO (hPutStrLn)
 import qualified Network.HTTP.Client as HTTP
 import Network.HTTP.Client.TLS (tlsManagerSettings)
+import Network.HTTP.Types (Status (..))
 import System.Environment (getEnv)
 import System.IO (stderr)
 
@@ -31,13 +33,28 @@ getTokenFromEnv env = MatrixToken . pack <$> getEnv (unpack env)
 mkManager :: IO HTTP.Manager
 mkManager = HTTP.newManager tlsManagerSettings
 
+checkMatrixResponse :: HTTP.Request -> HTTP.Response HTTP.BodyReader -> IO ()
+checkMatrixResponse req res =
+  unless (200 <= code && code < 500) $ do
+    chunk <- HTTP.brReadSome (HTTP.responseBody res) 1024
+    throwResponseError req res chunk
+  where
+    Status code _ = HTTP.responseStatus res
+
+throwResponseError :: HTTP.Request -> HTTP.Response body -> ByteString -> IO a
+throwResponseError req res chunk =
+  throwIO $ HTTP.HttpExceptionRequest req ex
+  where
+    ex = HTTP.StatusCodeException (void res) (toStrict chunk)
+
 mkRequest' :: Text -> MatrixToken -> Bool -> Text -> IO HTTP.Request
 mkRequest' baseUrl (MatrixToken token) auth path = do
   initRequest <- HTTP.parseUrlThrow (unpack $ baseUrl <> path)
   pure $
     initRequest
       { HTTP.requestHeaders =
-          [("Content-Type", "application/json")] <> authHeaders
+          [("Content-Type", "application/json")] <> authHeaders,
+        HTTP.checkResponse = checkMatrixResponse
       }
   where
     authHeaders =
@@ -46,14 +63,16 @@ mkRequest' baseUrl (MatrixToken token) auth path = do
 doRequest' :: FromJSON a => HTTP.Manager -> HTTP.Request -> IO (Either MatrixError a)
 doRequest' manager request = do
   response <- HTTP.httpLbs request manager
-  pure $ decodeResp (HTTP.responseBody response)
+  case decodeResp (HTTP.responseBody response) of
+    Nothing -> throwResponseError request response (HTTP.responseBody response)
+    Just a -> pure a
 
-decodeResp :: FromJSON a => ByteString -> Either MatrixError a
+decodeResp :: FromJSON a => ByteString -> Maybe (Either MatrixError a)
 decodeResp resp = case eitherDecode resp of
-  Right a -> pure a
-  Left err -> case eitherDecode resp of
-    Right me -> Left me
-    Left _ -> error $ "Could not decode: " <> err
+  Right a -> Just $ pure a
+  Left _ -> case eitherDecode resp of
+    Right me -> Just $ Left me
+    Left _ -> Nothing
 
 newtype UserID = UserID Text deriving (Show, Eq)
 
