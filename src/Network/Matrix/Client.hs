@@ -28,6 +28,7 @@ module Network.Matrix.Client
     -- * Room membership
     RoomID (..),
     getJoinedRooms,
+    joinRoom,
     joinRoomById,
     leaveRoomById,
   )
@@ -37,7 +38,9 @@ import Control.Monad (mzero)
 import Data.Aeson (FromJSON (..), Value (Object), encode, (.:))
 import Data.Hashable (Hashable)
 import Data.Text (Text)
+import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import qualified Network.HTTP.Client as HTTP
+import Network.HTTP.Types.URI (urlEncode)
 import Network.Matrix.Events
 import Network.Matrix.Internal
 
@@ -110,6 +113,14 @@ getJoinedRooms session = do
   request <- mkRequest session True "/_matrix/client/r0/joined_rooms"
   response <- doRequest session request
   pure $ unRooms <$> response
+
+-- | Note that this API takes either a room ID or alias, unlike 'joinRoomById'
+joinRoom :: ClientSession -> Text -> MatrixIO RoomID
+joinRoom session roomName = do
+  request <- mkRequest session True $ "/_matrix/client/r0/join/" <> roomNameUrl
+  doRequest session (request {HTTP.method = "POST"})
+  where
+    roomNameUrl = decodeUtf8 . urlEncode True . encodeUtf8 $ roomName
 
 joinRoomById :: ClientSession -> RoomID -> MatrixIO RoomID
 joinRoomById session (RoomID roomId) = do

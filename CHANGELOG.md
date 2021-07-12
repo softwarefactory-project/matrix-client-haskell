@@ -5,6 +5,7 @@
 - Ensure aeson encoding test is reproducible using aeson-pretty
 - Increase retry delay up to 2 minutes
 - Add leaveRoomById client function
+- Add joinRoom client function
 - Handle 400s error message returned by the API
 - Handle rate limit response in the retry helper
 
