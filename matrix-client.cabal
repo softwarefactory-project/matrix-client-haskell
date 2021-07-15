@@ -1,6 +1,6 @@
 cabal-version:       2.4
 name:                matrix-client
-version:             0.1.1.0
+version:             0.1.2.0
 synopsis:            A matrix client library
 description:
     Matrix client is a library to interface with https://matrix.org.
@@ -28,6 +28,7 @@ source-repository head
 
 common common-options
   build-depends:       base                   >= 4.11.0.0 && < 5
+                     , aeson-casing           >= 0.2.0.0  && < 0.3.0.0
                      , aeson                  >= 1.0.0.0  && < 1.6
   ghc-options:         -Wall
                        -Wcompat

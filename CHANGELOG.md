@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2.0
+
+- Add filtering client function
+
 ## 0.1.1.0
 
 - Ensure aeson encoding test is reproducible using aeson-pretty

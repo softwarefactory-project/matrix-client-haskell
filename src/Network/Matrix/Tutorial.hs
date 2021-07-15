@@ -22,6 +22,9 @@ module Network.Matrix.Tutorial
     -- * Create a session
     -- $session
 
+    -- * Get messages
+    -- $sync
+
     -- * Lookup identity
     -- $identity
   )
@@ -56,6 +59,14 @@ where
 --   > > sess <- createSession "https://matrix.org" token
 --   > > getTokenOwner sess
 --   > Right (WhoAmI "@tristanc_:matrix.org")
+
+-- $sync
+--   Create a filter to only sync message:
+--
+--   > > Right userId <- getTokenOwner sess
+--   > > Right filterId <- createFilter sess userId messageFilter
+--   > > getFilter sess (UserID "@gerritbot:matrix.org") filterId
+--   > Right (Filter {filterEventFields = ...})
 
 -- $identity
 --  To use the Identity api you need another token. Get it by running these commands:

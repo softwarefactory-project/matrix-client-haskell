@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -31,14 +32,37 @@ module Network.Matrix.Client
     joinRoom,
     joinRoomById,
     leaveRoomById,
+
+    -- * Filter
+    EventFormat (..),
+    EventFilter (..),
+    defaultEventFilter,
+    eventFilterAll,
+    RoomEventFilter (..),
+    defaultRoomEventFilter,
+    roomEventFilterAll,
+    StateFilter (..),
+    defaultStateFilter,
+    stateFilterAll,
+    RoomFilter (..),
+    defaultRoomFilter,
+    Filter (..),
+    defaultFilter,
+    FilterID,
+    messageFilter,
+    createFilter,
+    getFilter,
   )
 where
 
 import Control.Monad (mzero)
-import Data.Aeson (FromJSON (..), Value (Object), encode, (.:))
+import Data.Aeson (FromJSON (..), ToJSON (..), Value (Object, String), encode, genericParseJSON, genericToJSON, (.:))
+import qualified Data.Aeson as Aeson
+import Data.Aeson.Casing (aesonPrefix, snakeCase)
 import Data.Hashable (Hashable)
 import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
+import GHC.Generics
 import qualified Network.HTTP.Client as HTTP
 import Network.HTTP.Types.URI (urlEncode)
 import Network.Matrix.Events
@@ -136,3 +160,182 @@ leaveRoomById session (RoomID roomId) = do
     ensureEmptyObject value = case value of
       Object xs | xs == mempty -> ()
       _anyOther -> error $ "Unknown leave response: " <> show value
+
+-------------------------------------------------------------------------------
+-- https://matrix.org/docs/spec/client_server/latest#post-matrix-client-r0-user-userid-filter
+newtype FilterID = FilterID Text deriving (Show, Eq, Hashable)
+
+instance FromJSON FilterID where
+  parseJSON (Object v) = FilterID <$> v .: "filter_id"
+  parseJSON _ = mzero
+
+data EventFormat = Client | Federation deriving (Show, Eq)
+
+instance ToJSON EventFormat where
+  toJSON ef = case ef of
+    Client -> "client"
+    Federation -> "federation"
+
+instance FromJSON EventFormat where
+  parseJSON v = case v of
+    (String "client") -> pure Client
+    (String "federation") -> pure Federation
+    _ -> mzero
+
+data EventFilter = EventFilter
+  { efLimit :: Maybe Int,
+    efNotSenders :: Maybe [Text],
+    efNotTypes :: Maybe [Text],
+    efSenders :: Maybe [Text],
+    efTypes :: Maybe [Text]
+  }
+  deriving (Show, Eq, Generic)
+
+defaultEventFilter :: EventFilter
+defaultEventFilter = EventFilter Nothing Nothing Nothing Nothing Nothing
+
+-- | A filter that should match nothing
+eventFilterAll :: EventFilter
+eventFilterAll = defaultEventFilter {efLimit = Just 0, efNotTypes = Just ["*"]}
+
+aesonOptions :: Aeson.Options
+aesonOptions = (aesonPrefix snakeCase) {Aeson.omitNothingFields = True}
+
+instance ToJSON EventFilter where
+  toJSON = genericToJSON aesonOptions
+
+instance FromJSON EventFilter where
+  parseJSON = genericParseJSON aesonOptions
+
+data RoomEventFilter = RoomEventFilter
+  { refLimit :: Maybe Int,
+    refNotSenders :: Maybe [Text],
+    refNotTypes :: Maybe [Text],
+    refSenders :: Maybe [Text],
+    refTypes :: Maybe [Text],
+    refLazyLoadMembers :: Maybe Bool,
+    refIncludeRedundantMembers :: Maybe Bool,
+    refNotRooms :: Maybe [Text],
+    refRooms :: Maybe [Text],
+    refContainsUrl :: Maybe Bool
+  }
+  deriving (Show, Eq, Generic)
+
+defaultRoomEventFilter :: RoomEventFilter
+defaultRoomEventFilter = RoomEventFilter Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing
+
+-- | A filter that should match nothing
+roomEventFilterAll :: RoomEventFilter
+roomEventFilterAll = defaultRoomEventFilter {refLimit = Just 0, refNotTypes = Just ["*"]}
+
+instance ToJSON RoomEventFilter where
+  toJSON = genericToJSON aesonOptions
+
+instance FromJSON RoomEventFilter where
+  parseJSON = genericParseJSON aesonOptions
+
+data StateFilter = StateFilter
+  { sfLimit :: Maybe Int,
+    sfNotSenders :: Maybe [Text],
+    sfNotTypes :: Maybe [Text],
+    sfSenders :: Maybe [Text],
+    sfTypes :: Maybe [Text],
+    sfLazyLoadMembers :: Maybe Bool,
+    sfIncludeRedundantMembers :: Maybe Bool,
+    sfNotRooms :: Maybe [Text],
+    sfRooms :: Maybe [Text],
+    sfContains_url :: Maybe Bool
+  }
+  deriving (Show, Eq, Generic)
+
+defaultStateFilter :: StateFilter
+defaultStateFilter = StateFilter Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing
+
+stateFilterAll :: StateFilter
+stateFilterAll = defaultStateFilter {sfLimit = Just 0, sfNotTypes = Just ["*"]}
+
+instance ToJSON StateFilter where
+  toJSON = genericToJSON aesonOptions
+
+instance FromJSON StateFilter where
+  parseJSON = genericParseJSON aesonOptions
+
+data RoomFilter = RoomFilter
+  { rfNotRooms :: Maybe [Text],
+    rfRooms :: Maybe [Text],
+    rfEphemeral :: Maybe RoomEventFilter,
+    rfIncludeLeave :: Maybe Bool,
+    rfState :: Maybe StateFilter,
+    rfTimeline :: Maybe RoomEventFilter,
+    rfAccountData :: Maybe RoomEventFilter
+  }
+  deriving (Show, Eq, Generic)
+
+defaultRoomFilter :: RoomFilter
+defaultRoomFilter = RoomFilter Nothing Nothing Nothing Nothing Nothing Nothing Nothing
+
+instance ToJSON RoomFilter where
+  toJSON = genericToJSON aesonOptions
+
+instance FromJSON RoomFilter where
+  parseJSON = genericParseJSON aesonOptions
+
+data Filter = Filter
+  { filterEventFields :: Maybe [Text],
+    filterEventFormat :: Maybe EventFormat,
+    filterPresence :: Maybe EventFilter,
+    filterAccountData :: Maybe EventFilter,
+    filterRoom :: Maybe RoomFilter
+  }
+  deriving (Show, Eq, Generic)
+
+defaultFilter :: Filter
+defaultFilter = Filter Nothing Nothing Nothing Nothing Nothing
+
+-- | A filter to keep all the messages
+messageFilter :: Filter
+messageFilter =
+  defaultFilter
+    { filterPresence = Just eventFilterAll,
+      filterAccountData = Just eventFilterAll,
+      filterRoom = Just roomFilter
+    }
+  where
+    roomFilter =
+      defaultRoomFilter
+        { rfEphemeral = Just roomEventFilterAll,
+          rfState = Just stateFilterAll,
+          rfTimeline = Just timelineFilter,
+          rfAccountData = Just roomEventFilterAll
+        }
+    timelineFilter =
+      defaultRoomEventFilter
+        { refTypes = Just ["m.room.message"]
+        }
+
+instance ToJSON Filter where
+  toJSON = genericToJSON aesonOptions
+
+instance FromJSON Filter where
+  parseJSON = genericParseJSON aesonOptions
+
+-- | Upload a new filter definition to the homeserver
+-- https://matrix.org/docs/spec/client_server/latest#post-matrix-client-r0-user-userid-filter
+createFilter :: ClientSession -> UserID -> Filter -> MatrixIO FilterID
+createFilter session (UserID userID) body = do
+  request <- mkRequest session True path
+  doRequest
+    session
+    ( request
+        { HTTP.method = "POST",
+          HTTP.requestBody = HTTP.RequestBodyLBS $ encode body
+        }
+    )
+  where
+    path = "/_matrix/client/r0/user/" <> userID <> "/filter"
+
+getFilter :: ClientSession -> UserID -> FilterID -> MatrixIO Filter
+getFilter session (UserID userID) (FilterID filterID) =
+  doRequest session =<< mkRequest session True path
+  where
+    path = "/_matrix/client/r0/user/" <> userID <> "/filter/" <> filterID
