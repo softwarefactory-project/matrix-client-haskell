@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -Wno-missing-export-lists #-}
 
@@ -13,6 +14,7 @@ import Control.Retry (RetryStatus (..))
 import qualified Control.Retry as Retry
 import Data.Aeson (FromJSON (..), Value (Object), eitherDecode, (.:), (.:?))
 import Data.ByteString.Lazy (ByteString, toStrict)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text, pack, unpack)
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import Data.Text.IO (hPutStrLn)
@@ -113,10 +115,10 @@ retry' limit logRetry action =
     checkAction = do
       res <- action
       case res of
-        Left me@(MatrixError _ _ (Just ms)) -> do
+        Left (MatrixError "M_LIMIT_EXCEEDED" err delayMS) -> do
           -- Reponse contains a retry_after_ms
-          logRetry $ "RateLimit: " <> pack (show me)
-          threadDelay (ms * 1000)
+          logRetry $ "RateLimit: " <> err <> " (delay: " <> pack (show delayMS) <> ")"
+          threadDelay $ fromMaybe 5_000 delayMS * 1000
           throw MatrixRateLimit
         _ -> pure res
 
