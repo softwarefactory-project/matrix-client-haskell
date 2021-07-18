@@ -48,6 +48,7 @@ common lib-depends
   build-depends:       SHA                    ^>= 1.6
                      , base64
                      , bytestring
+                     , containers
                      , exceptions
                      , hashable
                      , http-client            >= 0.5.0    && < 0.8

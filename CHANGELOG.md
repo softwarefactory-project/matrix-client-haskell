@@ -3,6 +3,7 @@
 ## 0.1.2.0
 
 - Add filtering client function
+- Add sync client function
 
 ## 0.1.1.0
 

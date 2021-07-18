@@ -10,8 +10,9 @@ module Network.Matrix.Events
   )
 where
 
+import Control.Applicative ((<|>))
 import Control.Monad (mzero)
-import Data.Aeson (FromJSON (..), ToJSON (..), Value (Object), object, (.:), (.=))
+import Data.Aeson (FromJSON (..), ToJSON (..), Value (Object), object, (.:), (.:?), (.=))
 import Data.Aeson.Types (Pair)
 import Data.Text (Text)
 
@@ -21,6 +22,11 @@ data MessageText = MessageText
     mtFormattedBody :: Maybe Text
   }
   deriving (Show, Eq)
+
+instance FromJSON MessageText where
+  parseJSON (Object v) =
+    MessageText <$> v .: "body" <*> v .:? "format" <*> v .:? "formatted_body"
+  parseJSON _ = mzero
 
 messageTextAttr :: MessageText -> [Pair]
 messageTextAttr msg =
@@ -51,15 +57,33 @@ instance ToJSON RoomMessage where
           RoomMessageNotice mt -> messageTextAttr mt
      in object (["msgtype" .= msgtype] <> attr)
 
-newtype Event = EventRoomMessage RoomMessage
+instance FromJSON RoomMessage where
+  parseJSON o@(Object v) = do
+    msgType <- v .: "msgtype"
+    case (msgType :: Text) of
+      "m.text" -> RoomMessageText <$> parseJSON o
+      "m.emote" -> RoomMessageEmote <$> parseJSON o
+      "m.notice" -> RoomMessageNotice <$> parseJSON o
+      _ -> mzero
+  parseJSON _ = mzero
+
+data Event
+  = EventRoomMessage RoomMessage
+  | EventUnknown Value
+  deriving (Eq, Show)
 
 instance ToJSON Event where
   toJSON event = case event of
     EventRoomMessage msg -> toJSON msg
+    EventUnknown _ -> error $ "Event is not implemented: " <> show event
+
+instance FromJSON Event where
+  parseJSON v = EventRoomMessage <$> parseJSON v <|> pure (EventUnknown v)
 
 eventType :: Event -> Text
 eventType event = case event of
   EventRoomMessage _ -> "m.room.message"
+  EventUnknown _ -> error $ "Event is not implemented: " <> show event
 
 newtype EventID = EventID Text deriving (Show)
 

@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
@@ -48,10 +49,20 @@ module Network.Matrix.Client
     defaultRoomFilter,
     Filter (..),
     defaultFilter,
-    FilterID,
+    FilterID (..),
     messageFilter,
     createFilter,
     getFilter,
+
+    -- * Events
+    sync,
+    Presence (..),
+    RoomEvent (..),
+    RoomSummary (..),
+    TimelineSync (..),
+    JoinedRoomSync (..),
+    SyncResult (..),
+    SyncResultRoom (..),
   )
 where
 
@@ -60,7 +71,8 @@ import Data.Aeson (FromJSON (..), ToJSON (..), Value (Object, String), encode, g
 import qualified Data.Aeson as Aeson
 import Data.Aeson.Casing (aesonPrefix, snakeCase)
 import Data.Hashable (Hashable)
-import Data.Text (Text)
+import Data.Map.Strict (Map)
+import Data.Text (Text, pack)
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import GHC.Generics
 import qualified Network.HTTP.Client as HTTP
@@ -339,3 +351,116 @@ getFilter session (UserID userID) (FilterID filterID) =
   doRequest session =<< mkRequest session True path
   where
     path = "/_matrix/client/r0/user/" <> userID <> "/filter/" <> filterID
+
+-------------------------------------------------------------------------------
+-- https://matrix.org/docs/spec/client_server/latest#get-matrix-client-r0-sync
+data RoomEvent = RoomEvent
+  { reContent :: Event,
+    reType :: Text,
+    reEventId :: Text,
+    reSender :: Text
+  }
+  deriving (Show, Eq, Generic)
+
+data RoomSummary = RoomSummary
+  { rsJoinedMemberCount :: Maybe Int,
+    rsInvitedMemberCount :: Maybe Int
+  }
+  deriving (Show, Eq, Generic)
+
+data TimelineSync = TimelineSync
+  { tsEvents :: Maybe [RoomEvent],
+    tsLimited :: Maybe Bool,
+    tsPrevBatch :: Maybe Text
+  }
+  deriving (Show, Eq, Generic)
+
+data JoinedRoomSync = JoinedRoomSync
+  { jrsSummary :: RoomSummary,
+    jrsTimeline :: TimelineSync
+  }
+  deriving (Show, Eq, Generic)
+
+data Presence = Offline | Online | Unavailable deriving (Eq)
+
+instance Show Presence where
+  show = \case
+    Offline -> "offline"
+    Online -> "online"
+    Unavailable -> "unavailable"
+
+instance ToJSON Presence where
+  toJSON ef = String . pack . show $ ef
+
+instance FromJSON Presence where
+  parseJSON v = case v of
+    (String "offline") -> pure Offline
+    (String "online") -> pure Online
+    (String "unavailable") -> pure Unavailable
+    _ -> mzero
+
+data SyncResult = SyncResult
+  { srNextBatch :: Text,
+    srRooms :: Maybe SyncResultRoom
+  }
+  deriving (Show, Eq, Generic)
+
+newtype SyncResultRoom = SyncResultRoom
+  { srrJoin :: Map Text JoinedRoomSync
+  }
+  deriving (Show, Eq, Generic)
+
+unFilterID :: FilterID -> Text
+unFilterID (FilterID x) = x
+
+sync :: ClientSession -> Maybe FilterID -> Maybe Text -> Maybe Presence -> Maybe Int -> MatrixIO SyncResult
+sync session filterM sinceM presenceM timeoutM = do
+  request <- mkRequest session True "/_matrix/client/r0/sync"
+  doRequest session (HTTP.setQueryString qs request)
+  where
+    toQs name = \case
+      Nothing -> []
+      Just v -> [(name, Just . encodeUtf8 $ v)]
+    qs =
+      toQs "filter" (unFilterID <$> filterM)
+        <> toQs "since" sinceM
+        <> toQs "presence" (pack . show <$> presenceM)
+        <> toQs "timeout" (pack . show <$> timeoutM)
+
+-------------------------------------------------------------------------------
+-- Derived JSON instances
+instance ToJSON RoomEvent where
+  toJSON = genericToJSON aesonOptions
+
+instance FromJSON RoomEvent where
+  parseJSON = genericParseJSON aesonOptions
+
+instance ToJSON RoomSummary where
+  toJSON = genericToJSON aesonOptions
+
+instance FromJSON RoomSummary where
+  parseJSON = genericParseJSON aesonOptions
+
+instance ToJSON TimelineSync where
+  toJSON = genericToJSON aesonOptions
+
+instance FromJSON TimelineSync where
+  parseJSON = genericParseJSON aesonOptions
+
+instance ToJSON JoinedRoomSync where
+  toJSON = genericToJSON aesonOptions
+
+instance FromJSON JoinedRoomSync where
+  parseJSON = genericParseJSON aesonOptions
+
+instance ToJSON SyncResult where
+  toJSON = genericToJSON aesonOptions
+
+instance FromJSON SyncResult where
+  parseJSON = genericParseJSON aesonOptions
+
+instance ToJSON SyncResultRoom where
+  toJSON = genericToJSON aesonOptions
+
+instance FromJSON SyncResultRoom where
+  parseJSON = genericParseJSON aesonOptions
