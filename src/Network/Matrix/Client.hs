@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
@@ -56,6 +57,8 @@ module Network.Matrix.Client
 
     -- * Events
     sync,
+    getTimelines,
+    syncPoll,
     Presence (..),
     RoomEvent (..),
     RoomSummary (..),
@@ -71,7 +74,8 @@ import Data.Aeson (FromJSON (..), ToJSON (..), Value (Object, String), encode, g
 import qualified Data.Aeson as Aeson
 import Data.Aeson.Casing (aesonPrefix, snakeCase)
 import Data.Hashable (Hashable)
-import Data.Map.Strict (Map)
+import Data.List.NonEmpty (NonEmpty (..))
+import Data.Map.Strict (Map, foldrWithKey)
 import Data.Text (Text, pack)
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import GHC.Generics
@@ -333,7 +337,15 @@ instance FromJSON Filter where
 
 -- | Upload a new filter definition to the homeserver
 -- https://matrix.org/docs/spec/client_server/latest#post-matrix-client-r0-user-userid-filter
-createFilter :: ClientSession -> UserID -> Filter -> MatrixIO FilterID
+createFilter ::
+  -- | The client session, use 'createSession' to get one.
+  ClientSession ->
+  -- | The userID, use 'getTokenOwner' to get it.
+  UserID ->
+  -- | The filter definition, use 'defaultFilter' to create one or use the 'messageFilter' example.
+  Filter ->
+  -- | The function returns a 'FilterID' suitable for the 'sync' function.
+  MatrixIO FilterID
 createFilter session (UserID userID) body = do
   request <- mkRequest session True path
   doRequest
@@ -424,8 +436,39 @@ sync session filterM sinceM presenceM timeoutM = do
     qs =
       toQs "filter" (unFilterID <$> filterM)
         <> toQs "since" sinceM
-        <> toQs "presence" (pack . show <$> presenceM)
+        <> toQs "set_presence" (pack . show <$> presenceM)
         <> toQs "timeout" (pack . show <$> timeoutM)
+
+syncPoll ::
+  -- | The client session, use 'createSession' to get one.
+  ClientSession ->
+  -- | A sync filter, use 'createFilter' to get one.
+  Maybe FilterID ->
+  -- | A since value, get it from a previous sync result using the 'srNextBatch' field.
+  Maybe Text ->
+  -- | Set the session presence.
+  Maybe Presence ->
+  -- | Your callback to handle sync result.
+  (SyncResult -> IO ()) ->
+  -- | This function does not return unless there is an error.
+  MatrixIO ()
+syncPoll session filterM sinceM presenceM cb = go sinceM
+  where
+    go since = do
+      syncResultE <- retry $ sync session filterM since presenceM (Just 5_000)
+      case syncResultE of
+        Left err -> pure (Left err)
+        Right sr -> cb sr >> go (Just (srNextBatch sr))
+
+-- | Extract room events from a sync result
+getTimelines :: SyncResult -> [(RoomID, NonEmpty RoomEvent)]
+getTimelines sr = foldrWithKey getEvents [] joinedRooms
+  where
+    getEvents :: Text -> JoinedRoomSync -> [(RoomID, NonEmpty RoomEvent)] -> [(RoomID, NonEmpty RoomEvent)]
+    getEvents roomID jrs acc = case tsEvents (jrsTimeline jrs) of
+      Just (x : xs) -> (RoomID roomID, x :| xs) : acc
+      _ -> acc
+    joinedRooms = maybe mempty srrJoin (srRooms sr)
 
 -------------------------------------------------------------------------------
 -- Derived JSON instances

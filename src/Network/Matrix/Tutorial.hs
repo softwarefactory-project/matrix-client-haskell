@@ -50,10 +50,10 @@ where
 --   > getTokenOwner :: ClientSession -> MatrixIO WhoAmI
 
 -- $session
---   Most functions require 'ClientSession' which carries the
+--   Most functions require 'Network.Matrix.Client.ClientSession' which carries the
 --   endpoint url and the http client manager.
 --
---   The only way to get the client is through the 'Client.createSession' function:
+--   The only way to get the client is through the 'Network.Matrix.Client.createSession' function:
 --
 --   > > token <- getTokenFromEnv "MATRIX_TOKEN"
 --   > > sess <- createSession "https://matrix.org" token
@@ -61,12 +61,44 @@ where
 --   > Right (WhoAmI "@tristanc_:matrix.org")
 
 -- $sync
---   Create a filter to only sync message:
+--   Create a filter to limit the sync result using the 'Network.Matrix.Client.createFilter' function.
+--   To keep room message only, use the 'Network.Matrix.Client.messageFilter' default filter:
 --
 --   > > Right userId <- getTokenOwner sess
 --   > > Right filterId <- createFilter sess userId messageFilter
 --   > > getFilter sess (UserID "@gerritbot:matrix.org") filterId
 --   > Right (Filter {filterEventFields = ...})
+--
+--   Call the 'Network.Matrix.Client.sync' function to synchronize your client state:
+--
+--   > > Right syncResult <- sync sess (Just filterId) Nothing (Just Online) Nothing
+--   > > putStrLn $ take 512 $ show (getTimelines syncResult)
+--   > SyncResult {srNextBatch = ...}
+--
+--   Get next batch with a 300 second timeout using the @since@ argument:
+--
+--   > > Right syncResult' <- sync sess (Just filterId) (Just (srNextBatch syncResult)) (Just Online) (Just 300000)
+--
+--   Here are some helpers function to format the messages from sync results, copy them in your REPL:
+--
+--   > > import qualified Data.Text.IO as Text
+--   > > :{
+--   >   let printEvent re = case reContent re of
+--   >         EventRoomMessage (RoomMessageText mt) -> Text.putStrLn (reSender re <> ": " <> mtBody mt)
+--   >         _ -> pure ()
+--   >   :}
+--   > > let printRoomEvent room event = putStr (unpack room) >> putStr "| " >> printEvent event
+--   > > let printRoomEvents (RoomID room, events) = traverse (printRoomEvent room) events
+--   > > let printTimelines sr = mapM_ printRoomEvents (getTimelines sr)
+--   > > printTimelines syncResult
+--   > ...
+--
+--   Use the 'Network.Matrix.Client.syncPoll' utility function to continuously get events,
+--   here is an example to print new messages, similar to a @tail -f@ process:
+--
+--   > > syncPoll sess (Just filterId) (Just (srNextBatch syncResult)) (Just Online) printTimelines
+--   > room1| test-user: Hello world!
+--   > ...
 
 -- $identity
 --  To use the Identity api you need another token. Get it by running these commands:
