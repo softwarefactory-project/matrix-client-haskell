@@ -42,7 +42,7 @@ spec = describe "unit tests" $ do
   it "retry on rate limit failure" $
     checkPause (>=) $ do
       let resp = Left $ MatrixError "M_LIMIT_EXCEEDED" "error" (Just 1000)
-      (retry' 1 (const $ pure ()) (pure resp) :: MatrixIO Int)
+      (retryWithLog 1 (const $ pure ()) (pure resp) :: MatrixIO Int)
         `shouldThrow` rateLimitSelector
   where
     rateLimitSelector :: MatrixException -> Bool

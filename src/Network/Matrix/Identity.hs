@@ -14,6 +14,7 @@ module Network.Matrix.Identity
     MatrixIO,
     MatrixError (..),
     retry,
+    retryWithLog,
 
     -- * User data
     UserID (..),

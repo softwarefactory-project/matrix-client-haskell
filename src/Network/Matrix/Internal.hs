@@ -104,9 +104,16 @@ instance FromJSON MatrixError where
 -- | 'MatrixIO' is a convenient type alias for server response
 type MatrixIO a = IO (Either MatrixError a)
 
--- | Retry 5 times network action, doubling backoff each time
-retry' :: Int -> (Text -> IO ()) -> MatrixIO a -> MatrixIO a
-retry' limit logRetry action =
+-- | Retry a network action
+retryWithLog ::
+  -- | Maximum number of retry
+  Int ->
+  -- | A log function, can be used to measure errors
+  (Text -> IO ()) ->
+  -- | The action to retry
+  MatrixIO a ->
+  MatrixIO a
+retryWithLog limit logRetry action =
   Retry.recovering
     (Retry.exponentialBackoff backoff <> Retry.limitRetries limit)
     [handler, rateLimitHandler]
@@ -142,4 +149,4 @@ retry' limit logRetry action =
       HTTP.InvalidUrlException _ _ -> pure False
 
 retry :: MatrixIO a -> MatrixIO a
-retry = retry' 7 (hPutStrLn stderr)
+retry = retryWithLog 7 (hPutStrLn stderr)
