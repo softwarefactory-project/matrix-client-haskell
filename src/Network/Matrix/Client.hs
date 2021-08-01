@@ -455,7 +455,7 @@ syncPoll ::
 syncPoll session filterM sinceM presenceM cb = go sinceM
   where
     go since = do
-      syncResultE <- retry $ sync session filterM since presenceM (Just 5_000)
+      syncResultE <- retry $ sync session filterM since presenceM (Just 10_000)
       case syncResultE of
         Left err -> pure (Left err)
         Right sr -> cb sr >> go (Just (srNextBatch sr))

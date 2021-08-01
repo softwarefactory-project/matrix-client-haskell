@@ -83,11 +83,11 @@ where
 --
 --   > > import qualified Data.Text.IO as Text
 --   > > :{
---   >   let printEvent re = case reContent re of
---   >         EventRoomMessage (RoomMessageText mt) -> Text.putStrLn (reSender re <> ": " <> mtBody mt)
---   >         _ -> pure ()
+--   >   let printEvent re = Text.putStrLn $ case reContent re of
+--   >         EventRoomMessage (RoomMessageText mt) -> reSender re <> ": " <> mtBody mt
+--   >         _ -> ""
 --   >   :}
---   > > let printRoomEvent room event = putStr (unpack room) >> putStr "| " >> printEvent event
+--   > > let printRoomEvent room event = Text.putStr room >> putStr "| " >> printEvent event
 --   > > let printRoomEvents (RoomID room, events) = traverse (printRoomEvent room) events
 --   > > let printTimelines sr = mapM_ printRoomEvents (getTimelines sr)
 --   > > printTimelines syncResult
