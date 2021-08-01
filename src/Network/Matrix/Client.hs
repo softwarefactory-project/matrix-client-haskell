@@ -131,7 +131,7 @@ sendMessage session (RoomID roomId) event (TxnID txnId) = do
     path = "/_matrix/client/r0/rooms/" <> roomId <> "/send/" <> eventId <> "/" <> txnId
     eventId = eventType event
 
-newtype RoomID = RoomID Text deriving (Show, Eq, Hashable)
+newtype RoomID = RoomID Text deriving (Show, Eq, Ord, Hashable)
 
 instance FromJSON RoomID where
   parseJSON (Object v) = RoomID <$> v .: "room_id"

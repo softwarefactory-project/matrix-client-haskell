@@ -1,3 +1,4 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -14,6 +15,7 @@ import Control.Retry (RetryStatus (..))
 import qualified Control.Retry as Retry
 import Data.Aeson (FromJSON (..), Value (Object), eitherDecode, (.:), (.:?))
 import Data.ByteString.Lazy (ByteString, toStrict)
+import Data.Hashable (Hashable)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text, pack, unpack)
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
@@ -76,7 +78,7 @@ decodeResp resp = case eitherDecode resp of
     Right me -> Just $ Left me
     Left _ -> Nothing
 
-newtype UserID = UserID Text deriving (Show, Eq)
+newtype UserID = UserID Text deriving (Show, Eq, Ord, Hashable)
 
 instance FromJSON UserID where
   parseJSON (Object v) = UserID <$> v .: "user_id"
