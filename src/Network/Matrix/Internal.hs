@@ -10,7 +10,8 @@ module Network.Matrix.Internal where
 import Control.Concurrent (threadDelay)
 import Control.Exception (Exception, throw, throwIO)
 import Control.Monad (mzero, unless, void)
-import Control.Monad.Catch (Handler (Handler))
+import Control.Monad.Catch (Handler (Handler), MonadMask)
+import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Retry (RetryStatus (..))
 import qualified Control.Retry as Retry
 import Data.Aeson (FromJSON (..), Value (Object), eitherDecode, (.:), (.:?))
@@ -104,17 +105,20 @@ instance FromJSON MatrixError where
   parseJSON _ = mzero
 
 -- | 'MatrixIO' is a convenient type alias for server response
-type MatrixIO a = IO (Either MatrixError a)
+type MatrixIO a = MatrixM IO a
+
+type MatrixM m a = m (Either MatrixError a)
 
 -- | Retry a network action
 retryWithLog ::
+  (MonadMask m, MonadIO m) =>
   -- | Maximum number of retry
   Int ->
   -- | A log function, can be used to measure errors
-  (Text -> IO ()) ->
+  (Text -> m ()) ->
   -- | The action to retry
-  MatrixIO a ->
-  MatrixIO a
+  MatrixM m a ->
+  MatrixM m a
 retryWithLog limit logRetry action =
   Retry.recovering
     (Retry.exponentialBackoff backoff <> Retry.limitRetries limit)
@@ -127,7 +131,7 @@ retryWithLog limit logRetry action =
         Left (MatrixError "M_LIMIT_EXCEEDED" err delayMS) -> do
           -- Reponse contains a retry_after_ms
           logRetry $ "RateLimit: " <> err <> " (delay: " <> pack (show delayMS) <> ")"
-          threadDelay $ fromMaybe 5_000 delayMS * 1000
+          liftIO $ threadDelay $ fromMaybe 5_000 delayMS * 1000
           throw MatrixRateLimit
         _ -> pure res
 

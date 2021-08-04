@@ -4,6 +4,7 @@
 
 - Add filtering client function
 - Add sync client function
+- Add retryWithLog and syncPoll utility function
 
 ## 0.1.1.0
 
