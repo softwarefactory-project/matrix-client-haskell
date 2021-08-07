@@ -1,0 +1,11 @@
+{
+  "body": "> <@tristanc_:matrix.org> :hello\n\nHello there!",
+  "format": "org.matrix.custom.html",
+  "formatted_body": "<mx-reply><blockquote><a href=\"https://matrix.to/#/!roomID/$eventID?via=matrix.org\">In reply to</a> <a href=\"https://matrix.to/#/@tristanc_:matrix.org\">@tristanc_:matrix.org</a><br>:hello</blockquote></mx-reply>Hello there!",
+  "m.relates_to": {
+    "m.in_reply_to": {
+      "event_id": "$eventID"
+    }
+  },
+  "msgtype": "m.text"
+}

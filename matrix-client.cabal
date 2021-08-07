@@ -20,6 +20,7 @@ category:            Network
 build-type:          Simple
 extra-doc-files:     CHANGELOG.md
                      README.md
+extra-source-files:  test/data/*.json
 tested-with:         GHC == 8.10.4
 
 source-repository head
@@ -74,6 +75,7 @@ test-suite unit
   hs-source-dirs:     test, src
   main-is:            Spec.hs
   build-depends:      base
+                    , bytestring
                     , aeson-pretty
                     , hspec >= 2
                     , matrix-client

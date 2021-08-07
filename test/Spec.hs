@@ -6,6 +6,7 @@ module Main (main) where
 
 import Control.Monad (void)
 import qualified Data.Aeson.Encode.Pretty as Aeson
+import Data.ByteString.Lazy as BS
 import Data.Text (Text)
 import Data.Time.Clock.System (SystemTime (..), getSystemTime)
 import Network.Matrix.Client
@@ -26,6 +27,21 @@ spec = describe "unit tests" $ do
   it "decode response" $
     decodeResp "{\"user_id\": \"@tristanc_:matrix.org\"}"
       `shouldBe` (Just . Right $ UserID "@tristanc_:matrix.org")
+  it "decode reply" $ do
+    resp <- decodeResp <$> BS.readFile "test/data/message-reply.json"
+    case resp of
+      Just (Right (EventRoomReply eventID (RoomMessageText message))) -> do
+        eventID `shouldBe` EventID "$eventID"
+        mtBody message `shouldBe` "> <@tristanc_:matrix.org> :hello\n\nHello there!"
+      _ -> error $ show resp
+  it "decode edit" $ do
+    resp <- decodeResp <$> BS.readFile "test/data/message-edit.json"
+    case resp of
+      Just (Right (EventRoomEdit (eventID, RoomMessageText srcMsg) (RoomMessageText message))) -> do
+        eventID `shouldBe` EventID "$eventID"
+        mtBody srcMsg `shouldBe` " * > :typo"
+        mtBody message `shouldBe` "> :hello"
+      _ -> error $ show resp
   it "encode room message" $
     encodePretty (RoomMessageText (MessageText "Hello" Nothing Nothing))
       `shouldBe` "{\"body\":\"Hello\",\"msgtype\":\"m.text\"}"
