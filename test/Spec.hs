@@ -6,15 +6,53 @@ module Main (main) where
 
 import Control.Monad (void)
 import qualified Data.Aeson.Encode.Pretty as Aeson
-import Data.ByteString.Lazy as BS
-import Data.Text (Text)
+import qualified Data.ByteString.Lazy as BS
+import Data.Text (Text, pack)
 import Data.Time.Clock.System (SystemTime (..), getSystemTime)
 import Network.Matrix.Client
 import Network.Matrix.Internal
+import System.Environment (lookupEnv)
 import Test.Hspec
 
 main :: IO ()
-main = hspec spec
+main = do
+  env <- fmap (fmap pack) <$> traverse lookupEnv ["HOMESERVER_URL", "PRIMARY_TOKEN", "SECONDARY_TOKEN"]
+  runIntegration <- case env of
+    [Just url, Just tok1, Just tok2] -> do
+      sess1 <- createSession url (MatrixToken tok1)
+      sess2 <- createSession url (MatrixToken tok2)
+      pure $ integration sess1 sess2
+    _ -> do
+      putStrLn "Skipping integration test"
+      pure $ pure mempty
+  hspec (parallel $ spec >> runIntegration)
+
+integration :: ClientSession -> ClientSession -> Spec
+integration sess1 sess2 = do
+  describe "integration tests" $ do
+    it "create room" $ do
+      resp <-
+        createRoom
+          sess1
+          ( RoomCreateRequest
+              { rcrPreset = PublicChat,
+                rcrRoomAliasName = "test",
+                rcrName = "matrix-client-haskell-test",
+                rcrTopic = "Testing matrix-client-haskell"
+              }
+          )
+      case resp of
+        Left err -> meError err `shouldBe` "Alias already exists"
+        Right (RoomID roomID) -> roomID `shouldSatisfy` (/= mempty)
+    it "join room" $ do
+      resp <- joinRoom sess1 "#test:localhost"
+      case resp of
+        Left err -> error (show err)
+        Right (RoomID roomID) -> roomID `shouldSatisfy` (/= mempty)
+      resp' <- joinRoom sess2 "#test:localhost"
+      case resp' of
+        Left err -> error (show err)
+        Right (RoomID roomID) -> roomID `shouldSatisfy` (/= mempty)
 
 spec :: Spec
 spec = describe "unit tests" $ do

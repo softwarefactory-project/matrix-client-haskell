@@ -18,4 +18,14 @@ Run the tests:
 $ cabal test
 ```
 
+Some tests requires a local matrix server, run integration service:
+
+```ShellSession
+# In another terminal:
+$ nix develop -c dendrite-start
+# Before running cabal test:
+$ export $(nix develop -c dendrite-setup)
+$ cabal test
+```
+
 If you experience any difficulties, please don't hesistate to raise an issue.
