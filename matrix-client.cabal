@@ -68,6 +68,7 @@ library
                      , Network.Matrix.Tutorial
   other-modules:       Network.Matrix.Events
                      , Network.Matrix.Internal
+                     , Network.Matrix.Room
 
 test-suite unit
   import:             common-options, lib-depends

@@ -25,6 +25,11 @@ module Network.Matrix.Client
     UserID (..),
     getTokenOwner,
 
+    -- * Room management
+    RoomCreatePreset (..),
+    RoomCreateRequest (..),
+    createRoom,
+
     -- * Room participation
     TxnID (..),
     sendMessage,
@@ -74,7 +79,7 @@ module Network.Matrix.Client
 where
 
 import Control.Monad (mzero)
-import Data.Aeson (FromJSON (..), ToJSON (..), Value (Object, String), encode, genericParseJSON, genericToJSON, object, (.:), (.=))
+import Data.Aeson (FromJSON (..), ToJSON (..), Value (Object, String), encode, genericParseJSON, genericToJSON, object, (.:), (.:?), (.=))
 import qualified Data.Aeson as Aeson
 import Data.Aeson.Casing (aesonPrefix, snakeCase)
 import Data.Hashable (Hashable)
@@ -89,6 +94,7 @@ import qualified Network.HTTP.Client as HTTP
 import Network.HTTP.Types.URI (urlEncode)
 import Network.Matrix.Events
 import Network.Matrix.Internal
+import Network.Matrix.Room
 
 -- $setup
 -- >>> import Data.Aeson (decode)
@@ -119,6 +125,36 @@ doRequest ClientSession {..} = doRequest' manager
 getTokenOwner :: ClientSession -> MatrixIO UserID
 getTokenOwner session =
   doRequest session =<< mkRequest session True "/_matrix/client/r0/account/whoami"
+
+-- | A workaround data type to handle room create error being reported with a {message: "error"} response
+data CreateRoomResponse = CreateRoomResponse
+  { crrMessage :: Maybe Text,
+    crrID :: Maybe Text
+  }
+
+instance FromJSON CreateRoomResponse where
+  parseJSON (Object o) = CreateRoomResponse <$> o .:? "message" <*> o .:? "room_id"
+  parseJSON _ = mzero
+
+createRoom :: ClientSession -> RoomCreateRequest -> MatrixIO RoomID
+createRoom session rcr = do
+  request <- mkRequest session True "/_matrix/client/r0/createRoom"
+  toRoomID
+    <$> doRequest
+      session
+      ( request
+          { HTTP.method = "POST",
+            HTTP.requestBody = HTTP.RequestBodyLBS $ encode rcr
+          }
+      )
+  where
+    toRoomID :: Either MatrixError CreateRoomResponse -> Either MatrixError RoomID
+    toRoomID resp = case resp of
+      Left err -> Left err
+      Right crr -> case (crrID crr, crrMessage crr) of
+        (Just roomID, _) -> pure $ RoomID roomID
+        (_, Just message) -> Left $ MatrixError "UNKNOWN" message Nothing
+        _ -> Left $ MatrixError "UNKOWN" "" Nothing
 
 newtype TxnID = TxnID Text deriving (Show, Eq)
 
