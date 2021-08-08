@@ -5,6 +5,7 @@
 - Add filtering client function
 - Add sync client function
 - Add retryWithLog and syncPoll utility function
+- Add mkReply helper utility function
 - Add reply and edit Event
 - Change MessageText to include the TextType
 

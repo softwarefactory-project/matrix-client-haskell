@@ -27,6 +27,7 @@ module Network.Matrix.Client
     -- * Room participation
     TxnID (..),
     sendMessage,
+    mkReply,
     module Network.Matrix.Events,
 
     -- * Room membership
@@ -77,7 +78,9 @@ import Data.Aeson.Casing (aesonPrefix, snakeCase)
 import Data.Hashable (Hashable)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map, foldrWithKey)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text, pack)
+import qualified Data.Text as Text
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import GHC.Generics
 import qualified Network.HTTP.Client as HTTP
@@ -370,7 +373,7 @@ getFilter session (UserID userID) (FilterID filterID) =
 data RoomEvent = RoomEvent
   { reContent :: Event,
     reType :: Text,
-    reEventId :: Text,
+    reEventId :: Text, -- TODO: replace with EventID
     reSender :: Text
   }
   deriving (Show, Eq, Generic)
@@ -425,6 +428,98 @@ newtype SyncResultRoom = SyncResultRoom
 
 unFilterID :: FilterID -> Text
 unFilterID (FilterID x) = x
+
+-------------------------------------------------------------------------------
+-- https://matrix.org/docs/spec/client_server/latest#forming-relationships-between-events
+
+headMaybe :: [a] -> Maybe a
+headMaybe xs = case xs of
+  [] -> Nothing
+  (x : _) -> Just x
+
+tail' :: [a] -> [a]
+tail' xs = case xs of
+  [] -> []
+  (_ : rest) -> rest
+
+-- | An helper to create a reply body
+--
+-- >>> addReplyBody "foo@matrix.org" "Hello" "hi"
+-- "> <foo@matrix.org> Hello\n\nhi"
+--
+-- >>> addReplyBody "foo@matrix.org" "" "hey"
+-- "> <foo@matrix.org>\n\nhey"
+--
+-- >>> addReplyBody "foo@matrix.org" "a multi\nline" "resp"
+-- "> <foo@matrix.org> a multi\n> line\n\nresp"
+addReplyBody :: Text -> Text -> Text -> Text
+addReplyBody author old reply =
+  let oldLines = Text.lines old
+      headLine = "> <" <> author <> ">" <> maybe "" (mappend " ") (headMaybe oldLines)
+      newBody = [headLine] <> map (mappend "> ") (tail' oldLines) <> [""] <> [reply]
+   in Text.dropEnd 1 $ Text.unlines newBody
+
+addReplyFormattedBody :: RoomID -> EventID -> Text -> Text -> Text -> Text
+addReplyFormattedBody (RoomID roomID) (EventID eventID) author old reply =
+  Text.unlines
+    [ "<mx-reply>",
+      "  <blockquote>",
+      "    <a href=\"https://matrix.to/#/" <> roomID <> "/" <> eventID <> "\">In reply to</a>",
+      "    <a href=\"https://matrix.to/#/" <> author <> "\">" <> author <> "</a>",
+      "    <br />",
+      "    " <> old,
+      "  </blockquote>",
+      "</mx-reply>",
+      reply
+    ]
+
+-- | Convert body by encoding HTML special char
+--
+-- >>> toFormattedBody "& <test>"
+-- "&amp; &lt;test&gt;"
+toFormattedBody :: Text -> Text
+toFormattedBody = Text.concatMap char
+  where
+    char x = case x of
+      '<' -> "&lt;"
+      '>' -> "&gt;"
+      '&' -> "&amp;"
+      _ -> Text.singleton x
+
+-- | Prepare a reply event
+mkReply ::
+  -- | The destination room, must match the original event
+  RoomID ->
+  -- | The original event
+  RoomEvent ->
+  -- | The reply message
+  MessageText ->
+  -- | The event to send
+  Event
+mkReply room re mt =
+  let getFormattedBody mt' = fromMaybe (toFormattedBody $ mtBody mt') (mtFormattedBody mt')
+      eventID = EventID (reEventId re)
+      author = reSender re
+      updateText oldMT =
+        oldMT
+          { mtFormat = Just "org.matrix.custom.html",
+            mtBody = addReplyBody author (mtBody oldMT) (mtBody mt),
+            mtFormattedBody =
+              Just $
+                addReplyFormattedBody
+                  room
+                  eventID
+                  author
+                  (getFormattedBody oldMT)
+                  (getFormattedBody mt)
+          }
+
+      newMessage = case reContent re of
+        EventRoomMessage (RoomMessageText oldMT) -> updateText oldMT
+        EventRoomReply _ (RoomMessageText oldMT) -> updateText oldMT
+        EventRoomEdit _ (RoomMessageText oldMT) -> updateText oldMT
+        EventUnknown x -> error $ "Can't reply to " <> show x
+   in EventRoomReply eventID (RoomMessageText newMessage)
 
 sync :: ClientSession -> Maybe FilterID -> Maybe Text -> Maybe Presence -> Maybe Int -> MatrixIO SyncResult
 sync session filterM sinceM presenceM timeoutM = do
