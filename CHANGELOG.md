@@ -6,6 +6,7 @@
 - Add sync client function
 - Add retryWithLog and syncPoll utility function
 - Add reply and edit Event
+- Change MessageText to include the TextType
 
 ## 0.1.1.0
 

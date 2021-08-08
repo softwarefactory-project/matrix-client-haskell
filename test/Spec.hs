@@ -43,7 +43,7 @@ spec = describe "unit tests" $ do
         mtBody message `shouldBe` "> :hello"
       _ -> error $ show resp
   it "encode room message" $
-    encodePretty (RoomMessageText (MessageText "Hello" Nothing Nothing))
+    encodePretty (RoomMessageText (MessageText "Hello" TextType Nothing Nothing))
       `shouldBe` "{\"body\":\"Hello\",\"msgtype\":\"m.text\"}"
   it "does not retry on success" $
     checkPause (<=) $ do

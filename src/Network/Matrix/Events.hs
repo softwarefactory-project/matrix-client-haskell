@@ -2,7 +2,8 @@
 
 -- | Matrix event data type
 module Network.Matrix.Events
-  ( MessageText (..),
+  ( MessageTextType (..),
+    MessageText (..),
     RoomMessage (..),
     Event (..),
     EventID (..),
@@ -12,12 +13,33 @@ where
 
 import Control.Applicative ((<|>))
 import Control.Monad (mzero)
-import Data.Aeson (FromJSON (..), Object, ToJSON (..), Value (Object), object, (.:), (.:?), (.=))
+import Data.Aeson (FromJSON (..), Object, ToJSON (..), Value (Object, String), object, (.:), (.:?), (.=))
 import Data.Aeson.Types (Pair)
 import Data.Text (Text)
 
+data MessageTextType
+  = TextType
+  | EmoteType
+  | NoticeType
+  deriving (Eq, Show)
+
+instance FromJSON MessageTextType where
+  parseJSON (String name) = case name of
+    "m.text" -> pure TextType
+    "m.emote" -> pure EmoteType
+    "m.notice" -> pure NoticeType
+    _ -> mzero
+  parseJSON _ = mzero
+
+instance ToJSON MessageTextType where
+  toJSON mt = String $ case mt of
+    TextType -> "m.text"
+    EmoteType -> "m.emote"
+    NoticeType -> "m.notice"
+
 data MessageText = MessageText
   { mtBody :: Text,
+    mtType :: MessageTextType,
     mtFormat :: Maybe Text,
     mtFormattedBody :: Maybe Text
   }
@@ -25,50 +47,38 @@ data MessageText = MessageText
 
 instance FromJSON MessageText where
   parseJSON (Object v) =
-    MessageText <$> v .: "body" <*> v .:? "format" <*> v .:? "formatted_body"
+    MessageText
+      <$> v .: "body"
+        <*> v .: "msgtype"
+        <*> v .:? "format"
+        <*> v .:? "formatted_body"
   parseJSON _ = mzero
 
 messageTextAttr :: MessageText -> [Pair]
 messageTextAttr msg =
-  ["body" .= mtBody msg] <> format <> formattedBody
+  ["body" .= mtBody msg, "msgtype" .= mtType msg] <> format <> formattedBody
   where
     omitNull k vM = maybe [] (\v -> [k .= v]) vM
     format = omitNull "format" $ mtFormat msg
     formattedBody = omitNull "formatted_body" $ mtFormattedBody msg
 
-data RoomMessage
+instance ToJSON MessageText where
+  toJSON = object . messageTextAttr
+
+newtype RoomMessage
   = RoomMessageText MessageText
-  | RoomMessageEmote MessageText
-  | RoomMessageNotice MessageText
   deriving (Show, Eq)
 
 roomMessageAttr :: RoomMessage -> [Pair]
-roomMessageAttr roomMsg =
-  let msgtype = roomMessageType roomMsg
-      attr = case roomMsg of
-        RoomMessageText mt -> messageTextAttr mt
-        RoomMessageEmote mt -> messageTextAttr mt
-        RoomMessageNotice mt -> messageTextAttr mt
-   in ["msgtype" .= msgtype] <> attr
-
-roomMessageType :: RoomMessage -> Text
-roomMessageType roomMessage = case roomMessage of
-  RoomMessageText _ -> "m.text"
-  RoomMessageEmote _ -> "m.emote"
-  RoomMessageNotice _ -> "m.notice"
+roomMessageAttr rm = case rm of
+  RoomMessageText mt -> messageTextAttr mt
 
 instance ToJSON RoomMessage where
-  toJSON msg = object $ roomMessageAttr msg
+  toJSON msg = case msg of
+    RoomMessageText mt -> toJSON mt
 
 instance FromJSON RoomMessage where
-  parseJSON o@(Object v) = do
-    msgType <- v .: "msgtype"
-    case (msgType :: Text) of
-      "m.text" -> RoomMessageText <$> parseJSON o
-      "m.emote" -> RoomMessageEmote <$> parseJSON o
-      "m.notice" -> RoomMessageNotice <$> parseJSON o
-      _ -> mzero
-  parseJSON _ = mzero
+  parseJSON x = RoomMessageText <$> parseJSON x
 
 data RelatedMessage = RelatedMessage
   { rmMessage :: RoomMessage,
