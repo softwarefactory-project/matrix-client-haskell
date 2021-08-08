@@ -8,6 +8,7 @@
 - Add mkReply helper utility function
 - Add reply and edit Event
 - Change MessageText to include the TextType
+- Change RoomEvent to use Author and EventID newtype
 
 ## 0.1.1.0
 

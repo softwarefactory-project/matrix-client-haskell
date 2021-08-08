@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
@@ -61,6 +62,7 @@ module Network.Matrix.Client
     sync,
     getTimelines,
     syncPoll,
+    Author (..),
     Presence (..),
     RoomEvent (..),
     RoomSummary (..),
@@ -72,7 +74,7 @@ module Network.Matrix.Client
 where
 
 import Control.Monad (mzero)
-import Data.Aeson (FromJSON (..), ToJSON (..), Value (Object, String), encode, genericParseJSON, genericToJSON, (.:))
+import Data.Aeson (FromJSON (..), ToJSON (..), Value (Object, String), encode, genericParseJSON, genericToJSON, object, (.:), (.=))
 import qualified Data.Aeson as Aeson
 import Data.Aeson.Casing (aesonPrefix, snakeCase)
 import Data.Hashable (Hashable)
@@ -370,11 +372,15 @@ getFilter session (UserID userID) (FilterID filterID) =
 
 -------------------------------------------------------------------------------
 -- https://matrix.org/docs/spec/client_server/latest#get-matrix-client-r0-sync
+newtype Author = Author Text
+  deriving (Show, Eq)
+  deriving newtype (FromJSON, ToJSON)
+
 data RoomEvent = RoomEvent
   { reContent :: Event,
     reType :: Text,
-    reEventId :: Text, -- TODO: replace with EventID
-    reSender :: Text
+    reEventId :: EventID,
+    reSender :: Author
   }
   deriving (Show, Eq, Generic)
 
@@ -444,23 +450,24 @@ tail' xs = case xs of
 
 -- | An helper to create a reply body
 --
--- >>> addReplyBody "foo@matrix.org" "Hello" "hi"
+-- >>> let sender = Author "foo@matrix.org"
+-- >>> addReplyBody sender "Hello" "hi"
 -- "> <foo@matrix.org> Hello\n\nhi"
 --
--- >>> addReplyBody "foo@matrix.org" "" "hey"
+-- >>> addReplyBody sender "" "hey"
 -- "> <foo@matrix.org>\n\nhey"
 --
--- >>> addReplyBody "foo@matrix.org" "a multi\nline" "resp"
+-- >>> addReplyBody sender "a multi\nline" "resp"
 -- "> <foo@matrix.org> a multi\n> line\n\nresp"
-addReplyBody :: Text -> Text -> Text -> Text
-addReplyBody author old reply =
+addReplyBody :: Author -> Text -> Text -> Text
+addReplyBody (Author author) old reply =
   let oldLines = Text.lines old
       headLine = "> <" <> author <> ">" <> maybe "" (mappend " ") (headMaybe oldLines)
       newBody = [headLine] <> map (mappend "> ") (tail' oldLines) <> [""] <> [reply]
    in Text.dropEnd 1 $ Text.unlines newBody
 
-addReplyFormattedBody :: RoomID -> EventID -> Text -> Text -> Text -> Text
-addReplyFormattedBody (RoomID roomID) (EventID eventID) author old reply =
+addReplyFormattedBody :: RoomID -> EventID -> Author -> Text -> Text -> Text
+addReplyFormattedBody (RoomID roomID) (EventID eventID) (Author author) old reply =
   Text.unlines
     [ "<mx-reply>",
       "  <blockquote>",
@@ -498,7 +505,7 @@ mkReply ::
   Event
 mkReply room re mt =
   let getFormattedBody mt' = fromMaybe (toFormattedBody $ mtBody mt') (mtFormattedBody mt')
-      eventID = EventID (reEventId re)
+      eventID = reEventId re
       author = reSender re
       updateText oldMT =
         oldMT
@@ -569,10 +576,19 @@ getTimelines sr = foldrWithKey getEvents [] joinedRooms
 -------------------------------------------------------------------------------
 -- Derived JSON instances
 instance ToJSON RoomEvent where
-  toJSON = genericToJSON aesonOptions
+  toJSON RoomEvent {..} =
+    object
+      [ "content" .= reContent,
+        "type" .= reType,
+        "event_id" .= unEventID reEventId,
+        "sender" .= reSender
+      ]
 
 instance FromJSON RoomEvent where
-  parseJSON = genericParseJSON aesonOptions
+  parseJSON (Object o) = do
+    eventId <- o .: "event_id"
+    RoomEvent <$> o .: "content" <*> o .: "type" <*> pure eventId <*> o .: "sender"
+  parseJSON _ = mzero
 
 instance ToJSON RoomSummary where
   toJSON = genericToJSON aesonOptions
