@@ -434,7 +434,7 @@ data TimelineSync = TimelineSync
   deriving (Show, Eq, Generic)
 
 data JoinedRoomSync = JoinedRoomSync
-  { jrsSummary :: RoomSummary,
+  { jrsSummary :: Maybe RoomSummary,
     jrsTimeline :: TimelineSync
   }
   deriving (Show, Eq, Generic)
@@ -623,7 +623,7 @@ instance ToJSON RoomEvent where
 instance FromJSON RoomEvent where
   parseJSON (Object o) = do
     eventId <- o .: "event_id"
-    RoomEvent <$> o .: "content" <*> o .: "type" <*> pure eventId <*> o .: "sender"
+    RoomEvent <$> o .: "content" <*> o .: "type" <*> pure (EventID eventId) <*> o .: "sender"
   parseJSON _ = mzero
 
 instance ToJSON RoomSummary where

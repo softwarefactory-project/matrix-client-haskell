@@ -53,6 +53,15 @@ integration sess1 sess2 = do
       case resp' of
         Left err -> error (show err)
         Right (RoomID roomID) -> roomID `shouldSatisfy` (/= mempty)
+    it "send message and reply" $ do
+      -- Flush previous events
+      Right sr <- sync sess2 Nothing Nothing Nothing Nothing
+      Right [room] <- getJoinedRooms sess1
+      let msg body = RoomMessageText $ MessageText body TextType Nothing Nothing
+      let since = srNextBatch sr
+      Right eventID <- sendMessage sess1 room (EventRoomMessage $ msg "Hello") (TxnID since)
+      Right reply <- sendMessage sess2 room (EventRoomReply eventID $ msg "Hi!") (TxnID since)
+      reply `shouldNotBe` eventID
 
 spec :: Spec
 spec = describe "unit tests" $ do
