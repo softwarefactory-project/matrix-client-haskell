@@ -1,6 +1,6 @@
 cabal-version:       2.4
 name:                matrix-client
-version:             0.1.2.0
+version:             0.2.0
 synopsis:            A matrix client library
 description:
     Matrix client is a library to interface with https://matrix.org.
@@ -8,6 +8,8 @@ description:
     Use this library to interact with matrix server.
     .
     Read the "Network.Matrix.Tutorial" for a detailed tutorial.
+    .
+    Please see the README at https://github.com/softwarefactory-project/matrix-client-haskell#readme
     .
 homepage:            https://github.com/softwarefactory-project/matrix-client-haskell#readme
 bug-reports:         https://github.com/softwarefactory-project/matrix-client-haskell/issues
@@ -19,7 +21,6 @@ copyright:           2021 Red Hat
 category:            Network
 build-type:          Simple
 extra-doc-files:     CHANGELOG.md
-                     README.md
 extra-source-files:  test/data/*.json
 tested-with:         GHC == 8.10.4
 

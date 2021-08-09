@@ -1,8 +1,29 @@
 # matrix-client-haskell
 
+> [matrix] is an open network for secure, decentralized communication.
+
+This project contains Haskell libraries for [matrix.org](https://matrix.org).
+This allows you to rapidly integrate matrix events in your application.
+
+## matrix-client
+
 [![Hackage](https://img.shields.io/hackage/v/matrix-client.svg)](https://hackage.haskell.org/package/matrix-client)
 
-A client library for [matrix.org](https://matrix.org)
+A low level library to implements the [client-server spec](https://matrix.org/docs/spec/client_server/latest):
+
+### Implemented
+
+- [x] Basic room membership to leave and join rooms
+- [x] Basic sync to read room's timeline
+- [x] Sending text events
+- [x] Identity lookup
+
+### Next/Missing
+
+- [ ] Invites
+- [ ] Rich messages
+- [ ] Decoders to support OLM with https://github.com/livmackintosh/matrix-sdk
+- [ ] The rest of the HTTP API...
 
 ## Contribute
 
@@ -15,7 +36,7 @@ $ sudo dnf install -y ghc cabal-install && cabal update
 Run the tests:
 
 ```ShellSession
-$ cabal test
+$ cabal build all && cabal test all
 ```
 
 Some tests requires a local matrix server, run integration service:
@@ -25,7 +46,7 @@ Some tests requires a local matrix server, run integration service:
 $ nix develop -c dendrite-start
 # Before running cabal test:
 $ export $(nix develop -c dendrite-setup)
-$ cabal test
+$ cabal test all
 ```
 
 If you experience any difficulties, please don't hesistate to raise an issue.

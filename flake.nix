@@ -23,7 +23,12 @@
             };
 
             myHaskellPackages = prev.haskell.packages.${compiler}.override {
-
+              overrides = hpFinal: hpPrev: {
+                matrix-client =
+                  hpPrev.callCabal2nix "matrix-client" ./matrix-client/. { };
+                matrix-bot =
+                  hpPrev.callCabal2nix "matrix-bot" ./matrix-bot/. { };
+              };
             };
           })
         ];
@@ -63,17 +68,17 @@
           #!/bin/sh -ex
           # running doctest in the haskellPackages.shellFor environment seems to be
           # more reliable
-          doctest ./src/ -XOverloadedStrings
+          doctest ./matrix-client/ -XOverloadedStrings
           hlint .
-          cabal build
-          cabal test
+          cabal build all
+          cabal test all
         '';
 
       in rec {
         packages = with pkgs.myHaskellPackages; { inherit matrix-client; };
         defaultPackage = packages.matrix-client;
         devShell = pkgs.myHaskellPackages.shellFor {
-          packages = p: [ p.matrix-client ];
+          packages = p: [ p.matrix-client p.matrix-bot ];
 
           buildInputs = with pkgs.myHaskellPackages; [
             cabal-install
