@@ -16,6 +16,7 @@ module Network.Matrix.Client
     createSession,
 
     -- * API
+    MatrixM,
     MatrixIO,
     MatrixError (..),
     retry,
@@ -79,6 +80,7 @@ module Network.Matrix.Client
 where
 
 import Control.Monad (mzero)
+import Control.Monad.IO.Class (MonadIO(liftIO))
 import Data.Aeson (FromJSON (..), ToJSON (..), Value (Object, String), encode, genericParseJSON, genericToJSON, object, (.:), (.:?), (.=))
 import qualified Data.Aeson as Aeson
 import Data.Aeson.Casing (aesonPrefix, snakeCase)
@@ -579,6 +581,7 @@ sync session filterM sinceM presenceM timeoutM = do
         <> toQs "timeout" (pack . show <$> timeoutM)
 
 syncPoll ::
+  (MonadIO m) =>
   -- | The client session, use 'createSession' to get one.
   ClientSession ->
   -- | A sync filter, use 'createFilter' to get one.
@@ -588,13 +591,13 @@ syncPoll ::
   -- | Set the session presence.
   Maybe Presence ->
   -- | Your callback to handle sync result.
-  (SyncResult -> IO ()) ->
+  (SyncResult -> m ()) ->
   -- | This function does not return unless there is an error.
-  MatrixIO ()
+  MatrixM m ()
 syncPoll session filterM sinceM presenceM cb = go sinceM
   where
     go since = do
-      syncResultE <- retry $ sync session filterM since presenceM (Just 10_000)
+      syncResultE <- liftIO $ retry $ sync session filterM since presenceM (Just 10_000)
       case syncResultE of
         Left err -> pure (Left err)
         Right sr -> cb sr >> go (Just (srNextBatch sr))
