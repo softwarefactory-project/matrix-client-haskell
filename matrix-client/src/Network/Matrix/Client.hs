@@ -464,7 +464,7 @@ data SyncResult = SyncResult
   deriving (Show, Eq, Generic)
 
 newtype SyncResultRoom = SyncResultRoom
-  { srrJoin :: Map Text JoinedRoomSync
+  { srrJoin :: Maybe (Map Text JoinedRoomSync)
   }
   deriving (Show, Eq, Generic)
 
@@ -607,7 +607,7 @@ getTimelines sr = foldrWithKey getEvents [] joinedRooms
     getEvents roomID jrs acc = case tsEvents (jrsTimeline jrs) of
       Just (x : xs) -> (RoomID roomID, x :| xs) : acc
       _ -> acc
-    joinedRooms = maybe mempty srrJoin (srRooms sr)
+    joinedRooms = fromMaybe mempty $ srRooms sr >>= srrJoin
 
 -------------------------------------------------------------------------------
 -- Derived JSON instances
