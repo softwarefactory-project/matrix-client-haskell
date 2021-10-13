@@ -73,6 +73,7 @@ module Network.Matrix.Client
     RoomEvent (..),
     RoomSummary (..),
     TimelineSync (..),
+    InvitedRoomSync (..),
     JoinedRoomSync (..),
     SyncResult (..),
     SyncResultRoom (..),
@@ -465,9 +466,13 @@ data SyncResult = SyncResult
   }
   deriving (Show, Eq, Generic)
 
-newtype SyncResultRoom = SyncResultRoom
+data SyncResultRoom = SyncResultRoom
   { srrJoin :: Maybe (Map Text JoinedRoomSync)
+  , srrInvite :: Maybe (Map Text InvitedRoomSync)
   }
+  deriving (Show, Eq, Generic)
+
+data InvitedRoomSync = InvitedRoomSync
   deriving (Show, Eq, Generic)
 
 unFilterID :: FilterID -> Text
@@ -646,6 +651,12 @@ instance ToJSON JoinedRoomSync where
 
 instance FromJSON JoinedRoomSync where
   parseJSON = genericParseJSON aesonOptions
+
+instance ToJSON InvitedRoomSync where
+  toJSON _ = object []
+
+instance FromJSON InvitedRoomSync where
+  parseJSON _ = pure InvitedRoomSync
 
 instance ToJSON SyncResult where
   toJSON = genericToJSON aesonOptions
