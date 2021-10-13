@@ -411,7 +411,7 @@ getFilter session (UserID userID) (FilterID filterID) =
 
 -------------------------------------------------------------------------------
 -- https://matrix.org/docs/spec/client_server/latest#get-matrix-client-r0-sync
-newtype Author = Author Text
+newtype Author = Author {unAuthor :: Text}
   deriving (Show, Eq)
   deriving newtype (FromJSON, ToJSON)
 

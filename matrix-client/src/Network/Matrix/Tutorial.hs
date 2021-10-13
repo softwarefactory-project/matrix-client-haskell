@@ -84,7 +84,7 @@ where
 --   > > import qualified Data.Text.IO as Text
 --   > > :{
 --   >   let printEvent re = Text.putStrLn $ case reContent re of
---   >         EventRoomMessage (RoomMessageText mt) -> reSender re <> ": " <> mtBody mt
+--   >         EventRoomMessage (RoomMessageText mt) -> unAuthor (reSender re) <> ": " <> mtBody mt
 --   >         _ -> ""
 --   >   :}
 --   > > let printRoomEvent room event = Text.putStr room >> putStr "| " >> printEvent event
