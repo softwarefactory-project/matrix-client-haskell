@@ -17,10 +17,10 @@ A low level library to implements the [client-server spec](https://matrix.org/do
 - [x] Basic sync to read room's timeline
 - [x] Sending text events
 - [x] Identity lookup
+- [x] Invites
 
 ### Next/Missing
 
-- [ ] Invites
 - [ ] Rich messages
 - [ ] Decoders to support OLM with https://github.com/livmackintosh/matrix-sdk
 - [ ] The rest of the HTTP API...
