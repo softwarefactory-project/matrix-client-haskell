@@ -24,6 +24,7 @@ import Data.Text.IO (hPutStrLn)
 import qualified Network.HTTP.Client as HTTP
 import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Network.HTTP.Types (Status (..))
+import Network.HTTP.Types.Status (statusIsSuccessful)
 import System.Environment (getEnv)
 import System.IO (stderr)
 
@@ -68,16 +69,18 @@ mkRequest' baseUrl (MatrixToken token) auth path = do
 doRequest' :: FromJSON a => HTTP.Manager -> HTTP.Request -> IO (Either MatrixError a)
 doRequest' manager request = do
   response <- HTTP.httpLbs request manager
-  case decodeResp (HTTP.responseBody response) of
-    Nothing -> throwResponseError request response (HTTP.responseBody response)
-    Just a -> pure a
+  case decodeResp $ HTTP.responseBody response of
+    Right x -> pure x
+    Left e -> if statusIsSuccessful $ HTTP.responseStatus response
+      then fail e
+      else throwResponseError request response (HTTP.responseBody response)
 
-decodeResp :: FromJSON a => ByteString -> Maybe (Either MatrixError a)
+decodeResp :: FromJSON a => ByteString -> Either String (Either MatrixError a)
 decodeResp resp = case eitherDecode resp of
-  Right a -> Just $ pure a
-  Left _ -> case eitherDecode resp of
-    Right me -> Just $ Left me
-    Left _ -> Nothing
+  Right a -> Right $ pure a
+  Left e -> case eitherDecode resp of
+    Right me -> Right $ Left me
+    Left _ -> Left e
 
 newtype UserID = UserID Text deriving (Show, Eq, Ord, Hashable)
 
