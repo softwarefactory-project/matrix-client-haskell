@@ -157,5 +157,5 @@ retryWithLog limit logRetry action =
         pure True
       HTTP.InvalidUrlException _ _ -> pure False
 
-retry :: MatrixIO a -> MatrixIO a
-retry = retryWithLog 7 (hPutStrLn stderr)
+retry :: (MonadIO m, MonadMask m) => MatrixM m a -> MatrixM m a
+retry = retryWithLog 7 (liftIO . hPutStrLn stderr)
