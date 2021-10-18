@@ -5,6 +5,7 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- | This module contains the client-server API
 -- https://matrix.org/docs/spec/client_server/r0.6.1
@@ -64,6 +65,14 @@ module Network.Matrix.Client
     createFilter,
     getFilter,
 
+    -- * Account data
+
+    AccountData(accountDataType),
+    getAccountData,
+    getAccountData',
+    setAccountData,
+    setAccountData',
+
     -- * Events
     sync,
     getTimelines,
@@ -80,7 +89,7 @@ module Network.Matrix.Client
   )
 where
 
-import Control.Monad (mzero)
+import Control.Monad (mzero, void)
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Data.Aeson (FromJSON (..), ToJSON (..), Value (Object, String), encode, genericParseJSON, genericToJSON, object, (.:), (.:?), (.=))
 import qualified Data.Aeson as Aeson
@@ -89,6 +98,7 @@ import Data.Hashable (Hashable)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map, foldrWithKey)
 import Data.Maybe (fromMaybe)
+import Data.Proxy (Proxy(Proxy))
 import Data.Text (Text, pack)
 import qualified Data.Text as Text
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
@@ -669,3 +679,31 @@ instance ToJSON SyncResultRoom where
 
 instance FromJSON SyncResultRoom where
   parseJSON = genericParseJSON aesonOptions
+
+getAccountData' :: (FromJSON a) => ClientSession -> UserID -> Text -> MatrixIO a
+getAccountData' session userID t =
+  mkRequest session True (accountDataPath userID t) >>= doRequest session
+
+setAccountData' :: (ToJSON a) => ClientSession -> UserID -> Text -> a -> MatrixIO ()
+setAccountData' session userID t value = do
+  request <- mkRequest session True $ accountDataPath userID t
+  void <$> (doRequest session $ request
+             { HTTP.method = "PUT"
+             , HTTP.requestBody = HTTP.RequestBodyLBS $ encode value
+             } :: MatrixIO Aeson.Object
+           )
+
+accountDataPath :: UserID -> Text -> Text
+accountDataPath (UserID userID) t =
+  "/_matrix/client/r0/user/" <> userID <> "/account_data/" <> t
+
+class (FromJSON a, ToJSON a) => AccountData a where
+  accountDataType :: proxy a -> Text
+
+getAccountData :: forall a. (AccountData a) => ClientSession -> UserID -> MatrixIO a
+getAccountData session userID = getAccountData' session userID $
+                                accountDataType (Proxy :: Proxy a)
+
+setAccountData :: forall a. (AccountData a) => ClientSession -> UserID -> a -> MatrixIO ()
+setAccountData session userID = setAccountData' session userID $
+                                accountDataType (Proxy :: Proxy a)
