@@ -29,8 +29,23 @@ common common
 
 library
     import:           common
-    build-depends:    base < 5
+    build-depends:    aeson ^>= 1.5.6
+                    , aeson-casing ^>= 0.2.0
+                    , base < 5
+                    , containers ^>= 0.6.2
+                    , exceptions ^>= 0.10.4
+                    , lifted-async ^>= 0.10.2
                     , matrix-client
+                    , monad-control ^>= 1.0.3
+                    , text ^>= 1.2.4
+                    , transformers ^>= 0.5.6
+                    , transformers-base ^>= 0.4.6
     hs-source-dirs:   src
     exposed-modules:  MatrixBot.Main
+                    , Network.Matrix.Bot
+    other-modules:    Network.Matrix.Bot.ErrorHandling
+                    , Network.Matrix.Bot.Handler
+                    , Network.Matrix.Bot.JSON
+                    , Network.Matrix.Bot.State
+                    , Network.Matrix.Bot.Sync
     default-language: Haskell2010
