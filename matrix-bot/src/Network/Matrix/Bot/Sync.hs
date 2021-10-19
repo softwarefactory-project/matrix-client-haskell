@@ -1,15 +1,20 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 module Network.Matrix.Bot.Sync ( syncLoop
+                               , getInitialSyncToken
                                ) where
 
-import Control.Monad.Catch (MonadMask)
 import Control.Monad.IO.Class ( MonadIO
                               , liftIO
                               )
+import Control.Monad.IO.Unlift (MonadUnliftIO)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.Resource (runResourceT)
+import Control.Monad.Trans.State.Lazy (evalStateT)
 import Data.Aeson ( FromJSON (parseJSON)
                   , ToJSON ( toEncoding
                            , toJSON
@@ -21,13 +26,15 @@ import Data.Aeson ( FromJSON (parseJSON)
 import Data.Functor ((<&>))
 import qualified Data.Text as T
 import GHC.Generics (Generic)
-import Network.Matrix.Client ( AccountData(accountDataType)
+import Network.Matrix.Client ( ClientSession
+                             , AccountData(accountDataType)
                              , EventFilter(efNotTypes)
                              , Filter(filterAccountData)
                              , MatrixError( MatrixError
                                           , meErrcode
                                           )
                              , MatrixM
+                             , UserID
                              , createFilter
                              , defaultEventFilter
                              , defaultFilter
@@ -39,8 +46,8 @@ import Network.Matrix.Client ( AccountData(accountDataType)
                              )
 
 import Network.Matrix.Bot.ErrorHandling
-import Network.Matrix.Bot.Handler
 import Network.Matrix.Bot.JSON
+import Network.Matrix.Bot.Router
 import Network.Matrix.Bot.State
 
 newtype SyncTokenAccountData = SyncTokenAccountData
@@ -61,34 +68,30 @@ instance AccountData SyncTokenAccountData where
 syncTokenAccountDataType :: T.Text
 syncTokenAccountDataType = "invalid.example.fixme.use.real.domain.sync_token"
 
-getInitialSyncToken :: (HasSession m, MonadIO m, MonadMask m)
-                    => MatrixM m (Maybe T.Text)
-getInitialSyncToken = do
- session <- clientSession
- userID <- myUserID
+getInitialSyncToken :: (MonadIO m)
+                    => ClientSession -> UserID -> MatrixM m (Maybe T.Text)
+getInitialSyncToken session userID =
  liftIO (getAccountData session userID) <&> \case
    Left MatrixError{meErrcode="M_NOT_FOUND"} -> Right Nothing
    Left e -> Left e
    Right x -> Right (Just $ stadSyncToken x)
 
-syncLoop :: (MatrixBotBase m)
-         => BotEventHandler
+syncLoop :: (MatrixBotBase m, MonadUnliftIO m)
+         => SimpleBotEventRouter s m
          -> MatrixM m ()
-syncLoop handler = do
-  userID <- myUserID
+syncLoop (BotEventRouter mkInitialRouterState router) = do
   session <- clientSession
-  initialSyncToken <- retry getInitialSyncToken
-    >>= dieOnLeft "Could not retrieve saved sync token"
-  liftIO $ print initialSyncToken
-  runIsSyncedT initialSyncToken $ do
-    filterID <- liftIO (retry $ createFilter session userID mkFilter)
-      >>= dieOnLeft "Could not create filter"
-    withAsyncEventRouter handler $ \sendToHandler ->
-      syncPoll session (Just filterID) initialSyncToken Nothing $ \sr -> do
-      retry (saveSyncToken $ srNextBatch sr) >>= logOnLeft "Could not save sync token"
-      sendToHandler sr
+  userID <- myUserID
+  initialSyncToken <- syncedSince
+  filterID <- liftIO (retry $ createFilter session userID mkFilter)
+    >>= dieOnLeft "Could not create filter"
+  initialRouterState <- mkInitialRouterState
+  runResourceT $ flip evalStateT initialRouterState $
+    syncPoll session (Just filterID) initialSyncToken Nothing $ \sr -> do
+    retry (lift $ saveSyncToken $ srNextBatch sr) >>= logOnLeft "Could not save sync token"
+    execRouter router sr
 
-saveSyncToken :: (HasSession m, MonadIO m) => T.Text -> MatrixM m ()
+saveSyncToken :: (IsMatrixBot m, MonadIO m) => T.Text -> MatrixM m ()
 saveSyncToken token = do
   session <- clientSession
   userID <- myUserID

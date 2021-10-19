@@ -31,21 +31,26 @@ library
     import:           common
     build-depends:    aeson ^>= 1.5.6
                     , aeson-casing ^>= 0.2.0
+                    , async ^>= 2.2.4
                     , base < 5
                     , containers ^>= 0.6.2
                     , exceptions ^>= 0.10.4
-                    , lifted-async ^>= 0.10.2
                     , matrix-client
-                    , monad-control ^>= 1.0.3
+                    , mtl ^>= 2.2.2
+                    , stm ^>= 2.5.0
+                    , stm-chans ^>= 3.0.0
                     , text ^>= 1.2.4
                     , transformers ^>= 0.5.6
-                    , transformers-base ^>= 0.4.6
+                    , resourcet ^>= 1.2.4
+                    , unliftio-core ^>= 0.2.0
     hs-source-dirs:   src
     exposed-modules:  MatrixBot.Main
                     , Network.Matrix.Bot
-    other-modules:    Network.Matrix.Bot.ErrorHandling
-                    , Network.Matrix.Bot.Handler
+    other-modules:    Network.Matrix.Bot.Async
+                    , Network.Matrix.Bot.ErrorHandling
+                    , Network.Matrix.Bot.Event
                     , Network.Matrix.Bot.JSON
+                    , Network.Matrix.Bot.Router
                     , Network.Matrix.Bot.State
                     , Network.Matrix.Bot.Sync
     default-language: Haskell2010
