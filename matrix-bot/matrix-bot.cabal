@@ -36,7 +36,6 @@ library
                     , containers ^>= 0.6.2
                     , exceptions ^>= 0.10.4
                     , matrix-client
-                    , mtl ^>= 2.2.2
                     , stm ^>= 2.5.0
                     , stm-chans ^>= 3.0.0
                     , text ^>= 1.2.4

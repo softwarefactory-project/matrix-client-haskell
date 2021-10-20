@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 -- | The matrix-bot entrypoint
 module MatrixBot.Main where
@@ -5,9 +6,14 @@ module MatrixBot.Main where
 import Control.Monad.IO.Class ( MonadIO
                               , liftIO
                               )
+import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader ( ask
                                   , runReaderT
                                   )
+import Control.Monad.Trans.State ( StateT
+                                 , evalStateT
+                                 , get
+                                 )
 import qualified Data.Text as T
 import Network.Matrix.Client ( createSession
                              , getTokenFromEnv
@@ -18,6 +24,7 @@ import Network.Matrix.Bot
 import Network.Matrix.Bot.Async
 import Network.Matrix.Bot.Event
 import Network.Matrix.Bot.Router
+import Network.Matrix.Bot.State
 
 main :: IO ()
 main = do
@@ -25,12 +32,16 @@ main = do
   token <- getTokenFromEnv "MATRIX_BOT_TOKEN"
   session <- createSession (T.pack homeserver) token
   matrixBot session $ MatrixBotOptions (`runReaderT` (42 :: Int)) $
-    withExtraState (pure Nothing) $ customRouter $ \e -> do
-    asyncGroup <- getAsyncGroup
+    hoistRouter initializeRouterState $ customRouter $ \e -> do
+    asyncGroup <- lift get
     routeAsyncEvent asyncGroup e
     routeSyncEvent (\e' -> liftIO (print e') >> ask >>= liftIO . print) e
   pure ()
 
-getAsyncGroup :: (IsEventRouter m s n, MonadIO n) => m (SyncGroup n BotEvent)
-getAsyncGroup = newSyncGroup go
-  where go getNextEvent = getNextEvent >>= maybe (pure ()) (liftIO . print . fst)
+initializeRouterState :: (IsSyncGroupManager m, MonadIO (MatrixBotBaseLevel m))
+                      => StateT (SyncGroup (MatrixBotBaseLevel m) BotEvent) m a -> m a
+initializeRouterState a = mkAsyncGroup >>= evalStateT a
+
+mkAsyncGroup :: (IsSyncGroupManager m, MonadIO (MatrixBotBaseLevel m))
+             => m (SyncGroup (MatrixBotBaseLevel m) BotEvent)
+mkAsyncGroup = newSyncGroup $ asyncHandler id $ liftIO . print

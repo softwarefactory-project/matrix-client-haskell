@@ -12,9 +12,6 @@ import Control.Monad.IO.Class ( MonadIO
                               , liftIO
                               )
 import Control.Monad.IO.Unlift (MonadUnliftIO)
-import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.Resource (runResourceT)
-import Control.Monad.Trans.State.Lazy (evalStateT)
 import Data.Aeson ( FromJSON (parseJSON)
                   , ToJSON ( toEncoding
                            , toJSON
@@ -77,19 +74,18 @@ getInitialSyncToken session userID =
    Right x -> Right (Just $ stadSyncToken x)
 
 syncLoop :: (MatrixBotBase m, MonadUnliftIO m)
-         => SimpleBotEventRouter s m
+         => RunnableBotEventRouter m
          -> MatrixM m ()
-syncLoop (BotEventRouter mkInitialRouterState router) = do
+syncLoop (BotEventRouter runRouterStack router) = do
   session <- clientSession
   userID <- myUserID
   initialSyncToken <- syncedSince
   filterID <- liftIO (retry $ createFilter session userID mkFilter)
     >>= dieOnLeft "Could not create filter"
-  initialRouterState <- mkInitialRouterState
-  runResourceT $ flip evalStateT initialRouterState $
+  runSyncGroupManager $ runRouterStack $
     syncPoll session (Just filterID) initialSyncToken Nothing $ \sr -> do
-    retry (lift $ saveSyncToken $ srNextBatch sr) >>= logOnLeft "Could not save sync token"
-    execRouter router sr
+    retry (saveSyncToken $ srNextBatch sr) >>= logOnLeft "Could not save sync token"
+    runRouterM router sr
 
 saveSyncToken :: (IsMatrixBot m, MonadIO m) => T.Text -> MatrixM m ()
 saveSyncToken token = do

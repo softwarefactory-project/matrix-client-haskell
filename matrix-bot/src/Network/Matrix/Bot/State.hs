@@ -1,9 +1,12 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DefaultSignatures #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeFamilies #-}
 module Network.Matrix.Bot.State ( MatrixBotBase
+                                , HasMatrixBotBaseLevel(..)
                                 , IsMatrixBot(..)
                                 , MatrixBot
                                 , runMatrixBot
@@ -22,6 +25,7 @@ import Control.Monad.Trans.Reader ( ReaderT
                                   , asks
                                   , runReaderT
                                   )
+import Control.Monad.Trans.State (StateT)
 import Control.Monad.Trans.Resource (ResourceT)
 import qualified Data.Text as T
 import Network.Matrix.Client ( ClientSession
@@ -46,6 +50,25 @@ class (Monad m) => IsMatrixBot m where
 
 instance IsMatrixBot m => IsMatrixBot (ResourceT m)
 instance IsMatrixBot m => IsMatrixBot (ReaderT r m)
+instance IsMatrixBot m => IsMatrixBot (StateT s m)
+
+-- | 'Network.Matrix.Bot.matrixBot' provides a base monad transformer
+-- stack (optionally including transformer provided by the user
+-- through 'Network.Matrix.Bot.runBotT'). But in some places other
+-- transformers are stacked on top of this base transformer. In those
+-- cases, this class allows lifting operations in the base monad up
+-- the whole transformer stack.
+class (IsMatrixBot m, IsMatrixBot (MatrixBotBaseLevel m)) => HasMatrixBotBaseLevel m where
+  type MatrixBotBaseLevel m :: * -> *
+  liftBotBase :: MatrixBotBaseLevel m a -> m a
+  default liftBotBase  :: ( m ~ m' n, MonadTrans m', HasMatrixBotBaseLevel n
+                          , MatrixBotBaseLevel m ~ MatrixBotBaseLevel n
+                          )
+                       => MatrixBotBaseLevel m a -> m a
+  liftBotBase = lift . liftBotBase
+
+instance HasMatrixBotBaseLevel m => HasMatrixBotBaseLevel (StateT s m) where
+  type MatrixBotBaseLevel (StateT s m) = MatrixBotBaseLevel m
 
 data MatrixBotEnv = MatrixBotEnv
   { mbeUserID :: UserID

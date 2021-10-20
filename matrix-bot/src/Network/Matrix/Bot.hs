@@ -19,8 +19,8 @@ import Network.Matrix.Bot.Sync
 data MatrixBotOptions m where
   MatrixBotOptions
     :: (MatrixBotBase n, MonadUnliftIO n)
-    => { botRunCustomStack :: forall a. MatrixBotBase m => n a -> m a
-       , botRouter :: SimpleBotEventRouter s n
+    => { runBotT :: forall a. MatrixBotBase m => n a -> m a
+       , botRouter :: RunnableBotEventRouter n
        } -> MatrixBotOptions m
 
 matrixBot :: ClientSession
@@ -31,5 +31,5 @@ matrixBot session MatrixBotOptions{..} = do
   initialSyncToken <- retry (getInitialSyncToken session userID)
     >>= dieOnLeft "Could not retrieve saved sync token"
   liftIO $ print initialSyncToken
-  runMatrixBot session userID initialSyncToken $ botRunCustomStack $
+  runMatrixBot session userID initialSyncToken $ runBotT $
     forever $ syncLoop botRouter >>= logOnLeft "Error while syncing"

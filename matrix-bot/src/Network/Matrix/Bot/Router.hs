@@ -2,23 +2,21 @@
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE TupleSections #-}
-module Network.Matrix.Bot.Router ( IsEventRouter(..)
+{-# LANGUAGE TypeFamilies #-}
+module Network.Matrix.Bot.Router ( IsSyncGroupManager(..)
+                                 , SyncGroupManager
+                                 , runSyncGroupManager
+                                 , IsEventRouter(..)
                                  , BotEventRouter(..)
-                                 , SimpleBotEventRouter
-                                 , execRouter
+                                 , RunnableBotEventRouter
+                                 , runRouterM
                                  , customRouter
-                                 , transformRouter
-                                 , WithExtraState
-                                 , withExtraState
+                                 , hoistRouter
                                  ) where
 
-import Control.Concurrent.MVar (MVar)
 import Control.Monad.Catch ( MonadCatch
                            , MonadMask
                            , MonadThrow
@@ -27,15 +25,13 @@ import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.IO.Unlift ( MonadUnliftIO
                                , askUnliftIO
                                )
-import Control.Monad.State.Class ( MonadState( get
-                                             , put
-                                             )
-                                 )
 import Control.Monad.Trans.Class ( MonadTrans
                                  , lift
                                  )
-import Control.Monad.Trans.Resource (ResourceT)
-import Control.Monad.Trans.State.Lazy (StateT)
+import Control.Monad.Trans.Resource ( ResourceT
+                                    , runResourceT
+                                    )
+import Control.Monad.Trans.State (StateT)
 import Control.Monad.Trans.Writer.Lazy ( WriterT
                                        , execWriterT
                                        , tell
@@ -46,54 +42,83 @@ import Network.Matrix.Bot.Async
 import Network.Matrix.Bot.Event
 import Network.Matrix.Bot.State
 
-class (IsMatrixBot m, IsMatrixBot n) => IsEventRouter m s n | m -> s n where
-  routeSyncEvent :: (a -> n ()) -> a -> m ()
-  default routeSyncEvent :: (m ~ m1 m2, MonadTrans m1, IsEventRouter m2 s' n)
-                         => (a -> n ()) -> a -> m ()
-  routeSyncEvent f = lift . routeSyncEvent f
-
-  routeAsyncEvent :: SyncGroup n a -> a -> m ()
-  default routeAsyncEvent :: (m ~ m1 m2, MonadTrans m1, IsEventRouter m2 s' n)
-                          => SyncGroup n a -> a -> m ()
-  routeAsyncEvent g = lift . routeAsyncEvent g
-
-  newSyncGroup :: (n (Maybe (a, Maybe (MVar ()))) -> n ())
-               -> m (SyncGroup n a)
-  default newSyncGroup :: (m ~ m1 m2, MonadTrans m1, IsEventRouter m2 s' n)
-                       => (n (Maybe (a, Maybe (MVar ()))) -> n ()) -> m (SyncGroup n a)
+class (IsMatrixBot m, HasMatrixBotBaseLevel m) => IsSyncGroupManager m where
+  newSyncGroup :: AsyncHandler (MatrixBotBaseLevel m) a
+               -> m (SyncGroup (MatrixBotBaseLevel m) a)
+  default newSyncGroup :: ( m ~ m1 m2, MonadTrans m1, IsSyncGroupManager m2
+                          , MatrixBotBaseLevel m ~ MatrixBotBaseLevel m2
+                          )
+                       => AsyncHandler (MatrixBotBaseLevel m) a
+                       -> m (SyncGroup (MatrixBotBaseLevel m) a)
   newSyncGroup = lift . newSyncGroup
 
-  liftRouterBase :: n a -> m a
-  default liftRouterBase :: (m ~ m1 m2, MonadTrans m1, IsEventRouter m2 s' n)
-                         => n a -> m a
-  liftRouterBase = lift . liftRouterBase
+class (IsSyncGroupManager m) => IsEventRouter m where
+  routeSyncEvent :: (a -> MatrixBotBaseLevel m ()) -> a -> m ()
+  default routeSyncEvent :: ( m ~ m1 m2, MonadTrans m1, IsEventRouter m2
+                            , MatrixBotBaseLevel m ~ MatrixBotBaseLevel m2)
+                         => (a -> MatrixBotBaseLevel m ()) -> a -> m ()
+  routeSyncEvent f = lift . routeSyncEvent f
 
-  getRouterState :: m s
-  default getRouterState :: (m ~ m1 m2, MonadTrans m1, IsEventRouter m2 s n) => m s
-  getRouterState = lift getRouterState
+  routeAsyncEvent :: SyncGroup (MatrixBotBaseLevel m) a -> a -> m ()
+  default routeAsyncEvent :: ( m ~ m1 m2, MonadTrans m1, IsEventRouter m2
+                             , MatrixBotBaseLevel m ~ MatrixBotBaseLevel m2)
+                          => SyncGroup (MatrixBotBaseLevel m) a -> a -> m ()
+  routeAsyncEvent g = lift . routeAsyncEvent g
 
-  putRouterState :: s -> m ()
-  default putRouterState :: (m ~ m1 m2, MonadTrans m1, IsEventRouter m2 s n) => s -> m ()
-  putRouterState = lift . putRouterState
+instance (IsSyncGroupManager m) => IsSyncGroupManager (StateT s m)
 
-getsRouterState :: (IsEventRouter m s n) => (s -> a) -> m a
-getsRouterState = (<$> getRouterState)
+-- | An event router that can be executed in the monad @m@. Note that
+-- the routing logic inside the router might use additional monad
+-- transformers on top of @m@, for example if it the result of an
+-- application of 'hoistRouter'.
+data BotEventRouter m where
+  BotEventRouter :: ( MatrixBotBase m'
+                    , HasMatrixBotBaseLevel m'
+                    , MatrixBotBase (MatrixBotBaseLevel m')
+                    )
+                 => { runRouterT :: forall a. m' a -> m a
+                    , berDoRoute :: BotEvent -> RouterM m' ()
+                    } -> BotEventRouter m
 
-modifyRouterState :: (IsEventRouter m s n) => (s -> s) -> m ()
-modifyRouterState f = getRouterState >>= putRouterState . f
+-- | An event router that can be executed under the conditions
+-- provided by the bot framework, given the base monad @m@. I.e. if
+-- you initialized the bot framework with the base monad @m@, you need
+-- to provide a router of type @RunnableBotEventRouter m@. Note that
+-- the @m@ here is different from the @m@ to 'BotEventRouter', because
+-- the bot framework automatically runs the router on to of additional
+-- transformers above the base stack.
+type RunnableBotEventRouter m = forall n. ( MatrixBotBase n
+                                          , MatrixBotBaseLevel n ~ m
+                                          , IsSyncGroupManager n
+                                          ) => BotEventRouter n
 
-data BotEventRouter s m n where
-  BotEventRouter :: { berInitialState :: n s
-                    , berDoRoute :: BotEvent -> m ()
-                    } -> BotEventRouter s m n
+newtype SyncGroupManager m a = SyncGroupManager (ResourceT m a)
+  deriving ( Functor
+           , Applicative
+           , Monad
+           , MonadIO
+           , MonadThrow
+           , MonadCatch
+           , MonadMask
+           , MonadTrans
+           )
 
-type SimpleBotEventRouter s n = forall m. ( MatrixBotBase m
-                                          , IsEventRouter m s n
-                                          , MatrixBotBase n
-                                          ) => BotEventRouter s m n
+runSyncGroupManager :: (MonadUnliftIO m) => SyncGroupManager m a -> m a
+runSyncGroupManager (SyncGroupManager a) = runResourceT a
 
-newtype RouterM s m a = RouterM 
-  { unRouterM :: WriterT [SyncGroupCall m] (StateT s (ResourceT m)) a }
+instance IsMatrixBot m => IsMatrixBot (SyncGroupManager m)
+
+instance (IsMatrixBot m) => HasMatrixBotBaseLevel (SyncGroupManager m) where
+  type MatrixBotBaseLevel (SyncGroupManager m) = m
+  liftBotBase = lift
+
+instance (IsMatrixBot m, MonadUnliftIO m) => IsSyncGroupManager (SyncGroupManager m) where
+  newSyncGroup handler = do
+    unliftBase <- liftBotBase askUnliftIO
+    SyncGroupManager $ startSyncGroup unliftBase handler
+
+newtype RouterM m a = RouterM
+  { unRouterM :: WriterT [SyncGroupCall (MatrixBotBaseLevel m)] m a }
   deriving ( Functor
            , Applicative
            , Monad
@@ -103,69 +128,38 @@ newtype RouterM s m a = RouterM
            , MonadMask
            )
 
-instance MonadTrans (RouterM s) where
-  lift = RouterM . lift . lift . lift
+instance MonadTrans RouterM where
+  lift = RouterM . lift
 
-instance IsMatrixBot n => IsMatrixBot (RouterM s n)
+instance IsMatrixBot m => IsMatrixBot (RouterM m)
 
-instance (MonadUnliftIO m, IsMatrixBot m) => IsEventRouter (RouterM s m) s m where
+instance (HasMatrixBotBaseLevel m) => HasMatrixBotBaseLevel (RouterM m) where
+  type MatrixBotBaseLevel (RouterM m) = MatrixBotBaseLevel m
+
+instance (IsSyncGroupManager m) => IsSyncGroupManager (RouterM m)
+
+instance (IsSyncGroupManager m) => IsEventRouter (RouterM m) where
   routeSyncEvent f x = RouterM $ tell [syncCall f x]
   routeAsyncEvent group x = RouterM $ tell [asyncGroupCall group x Nothing]
-  newSyncGroup handler = RouterM $ do
-    unliftHandler <- lift $ lift $ lift askUnliftIO
-    startSyncGroup unliftHandler handler
-  liftRouterBase = lift
-  getRouterState = RouterM get
-  putRouterState = RouterM . put
 
-execRouter :: (MatrixBotBase m)
-           => (BotEvent -> RouterM s m ())
+runRouterM :: (HasMatrixBotBaseLevel m, MatrixBotBase (MatrixBotBaseLevel m))
+           => (BotEvent -> RouterM m ())
            -> SyncResult
-           -> StateT s (ResourceT m) ()
-execRouter router = mapM_ routeEvent . extractBotEvents
+           -> m ()
+runRouterM router = mapM_ routeEvent . extractBotEvents
   where routeEvent e =
-          execWriterT (unRouterM $ router e) >>= mapM_ (lift . lift . syncGroupCall)
+          execWriterT (unRouterM $ router e) >>= mapM_ (liftBotBase . syncGroupCall)
 
-customRouter :: ( IsEventRouter m () n
+customRouter :: ( IsSyncGroupManager m
                 , MatrixBotBase m
-                , Applicative n
+                , MatrixBotBase (MatrixBotBaseLevel m)
                 )
-             => (BotEvent -> m ())
-             -> BotEventRouter () m n
-customRouter = BotEventRouter (pure ())
+             => (forall n. (IsEventRouter (n m), MonadTrans n, MatrixBotBaseLevel (n m) ~ MatrixBotBaseLevel m) => BotEvent -> (n m) ())
+             -> BotEventRouter m
+customRouter = BotEventRouter id
 
-transformRouter :: (Monad m, Monad n)
-                => (s -> n s')
-                -> (forall a. m' a -> m a)
-                -> BotEventRouter s m' n
-                -> BotEventRouter s' m n
-transformRouter transformInitialState runTransformer (BotEventRouter initialState handler) =
-  BotEventRouter (initialState >>= transformInitialState) $ runTransformer . handler
-
-newtype WithExtraState s es (n :: * -> *) m a = WithExtraState { runWithExtraState :: m a }
-  deriving ( Functor
-           , Applicative
-           , Monad
-           , MonadIO
-           , MonadThrow
-           , MonadCatch
-           , MonadMask
-           )
-
-instance MonadTrans (WithExtraState s es n) where
-  lift = WithExtraState
-
-instance IsMatrixBot m => IsMatrixBot (WithExtraState s es n m)
-instance (IsEventRouter m (s, es) n) => IsEventRouter (WithExtraState s es n m) s n where
-  getRouterState = lift $ getsRouterState fst
-  putRouterState s = lift $ modifyRouterState $ \(_, es) -> (s, es)
-
-instance (IsEventRouter m (s, es) n) => MonadState es (WithExtraState s es n m) where
-  get = lift $ getsRouterState snd
-  put es = lift $ modifyRouterState $ \(s, _) -> (s, es)
-
-withExtraState :: (Monad m, Monad n)
-               => n es
-               -> BotEventRouter s (WithExtraState s es n m) n
-               -> BotEventRouter (s, es) m n
-withExtraState initialState = transformRouter (\s -> (s,) <$> initialState) runWithExtraState
+hoistRouter :: (forall a. m' a -> m a)
+                -> BotEventRouter m'
+                -> BotEventRouter m
+hoistRouter transformStack (BotEventRouter runStack handler) =
+  BotEventRouter (transformStack . runStack) handler
