@@ -6,10 +6,8 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
-module Network.Matrix.Bot.Router ( IsSyncGroupManager(..)
-                                 , SyncGroupManager
-                                 , runSyncGroupManager
-                                 , IsEventRouter(..)
+module Network.Matrix.Bot.Router ( IsEventRouter(..)
+                                 , routeAsyncEvent
                                  , BotEventRouter(..)
                                  , RunnableBotEventRouter
                                  , runRouterM
@@ -22,16 +20,9 @@ import Control.Monad.Catch ( MonadCatch
                            , MonadThrow
                            )
 import Control.Monad.IO.Class (MonadIO)
-import Control.Monad.IO.Unlift ( MonadUnliftIO
-                               , askUnliftIO
-                               )
 import Control.Monad.Trans.Class ( MonadTrans
                                  , lift
                                  )
-import Control.Monad.Trans.Resource ( ResourceT
-                                    , runResourceT
-                                    )
-import Control.Monad.Trans.State (StateT)
 import Control.Monad.Trans.Writer.Lazy ( WriterT
                                        , execWriterT
                                        , tell
@@ -42,16 +33,6 @@ import Network.Matrix.Bot.Async
 import Network.Matrix.Bot.Event
 import Network.Matrix.Bot.State
 
-class (IsMatrixBot m, HasMatrixBotBaseLevel m) => IsSyncGroupManager m where
-  newSyncGroup :: AsyncHandler (MatrixBotBaseLevel m) a
-               -> m (SyncGroup (MatrixBotBaseLevel m) a)
-  default newSyncGroup :: ( m ~ m1 m2, MonadTrans m1, IsSyncGroupManager m2
-                          , MatrixBotBaseLevel m ~ MatrixBotBaseLevel m2
-                          )
-                       => AsyncHandler (MatrixBotBaseLevel m) a
-                       -> m (SyncGroup (MatrixBotBaseLevel m) a)
-  newSyncGroup = lift . newSyncGroup
-
 class (IsSyncGroupManager m) => IsEventRouter m where
   routeSyncEvent :: (a -> MatrixBotBaseLevel m ()) -> a -> m ()
   default routeSyncEvent :: ( m ~ m1 m2, MonadTrans m1, IsEventRouter m2
@@ -59,13 +40,17 @@ class (IsSyncGroupManager m) => IsEventRouter m where
                          => (a -> MatrixBotBaseLevel m ()) -> a -> m ()
   routeSyncEvent f = lift . routeSyncEvent f
 
-  routeAsyncEvent :: SyncGroup (MatrixBotBaseLevel m) a -> a -> m ()
-  default routeAsyncEvent :: ( m ~ m1 m2, MonadTrans m1, IsEventRouter m2
+  routeSyncGroupEvent :: SyncGroup (MatrixBotBaseLevel m) a -> a -> m ()
+  default routeSyncGroupEvent :: ( m ~ m1 m2, MonadTrans m1, IsEventRouter m2
                              , MatrixBotBaseLevel m ~ MatrixBotBaseLevel m2)
                           => SyncGroup (MatrixBotBaseLevel m) a -> a -> m ()
-  routeAsyncEvent g = lift . routeAsyncEvent g
+  routeSyncGroupEvent g = lift . routeSyncGroupEvent g
 
-instance (IsSyncGroupManager m) => IsSyncGroupManager (StateT s m)
+routeAsyncEvent :: (IsEventRouter m, MatrixBotBase (MatrixBotBaseLevel m))
+                => (a -> MatrixBotBaseLevel m ()) -> a -> m ()
+routeAsyncEvent handle e = do
+  syncGroup <- newSyncGroup $ asyncHandler handle
+  routeSyncGroupEvent syncGroup e
 
 -- | An event router that can be executed in the monad @m@. Note that
 -- the routing logic inside the router might use additional monad
@@ -75,6 +60,7 @@ data BotEventRouter m where
   BotEventRouter :: ( MatrixBotBase m'
                     , HasMatrixBotBaseLevel m'
                     , MatrixBotBase (MatrixBotBaseLevel m')
+                    , IsSyncGroupManager m'
                     )
                  => { runRouterT :: forall a. m' a -> m a
                     , berDoRoute :: BotEvent -> RouterM m' ()
@@ -91,31 +77,6 @@ type RunnableBotEventRouter m = forall n. ( MatrixBotBase n
                                           , MatrixBotBaseLevel n ~ m
                                           , IsSyncGroupManager n
                                           ) => BotEventRouter n
-
-newtype SyncGroupManager m a = SyncGroupManager (ResourceT m a)
-  deriving ( Functor
-           , Applicative
-           , Monad
-           , MonadIO
-           , MonadThrow
-           , MonadCatch
-           , MonadMask
-           , MonadTrans
-           )
-
-runSyncGroupManager :: (MonadUnliftIO m) => SyncGroupManager m a -> m a
-runSyncGroupManager (SyncGroupManager a) = runResourceT a
-
-instance IsMatrixBot m => IsMatrixBot (SyncGroupManager m)
-
-instance (IsMatrixBot m) => HasMatrixBotBaseLevel (SyncGroupManager m) where
-  type MatrixBotBaseLevel (SyncGroupManager m) = m
-  liftBotBase = lift
-
-instance (IsMatrixBot m, MonadUnliftIO m) => IsSyncGroupManager (SyncGroupManager m) where
-  newSyncGroup handler = do
-    unliftBase <- liftBotBase askUnliftIO
-    SyncGroupManager $ startSyncGroup unliftBase handler
 
 newtype RouterM m a = RouterM
   { unRouterM :: WriterT [SyncGroupCall (MatrixBotBaseLevel m)] m a }
@@ -140,7 +101,7 @@ instance (IsSyncGroupManager m) => IsSyncGroupManager (RouterM m)
 
 instance (IsSyncGroupManager m) => IsEventRouter (RouterM m) where
   routeSyncEvent f x = RouterM $ tell [syncCall f x]
-  routeAsyncEvent group x = RouterM $ tell [asyncGroupCall group x Nothing]
+  routeSyncGroupEvent group x = RouterM $ tell [asyncGroupCall group x Nothing]
 
 runRouterM :: (HasMatrixBotBaseLevel m, MatrixBotBase (MatrixBotBaseLevel m))
            => (BotEvent -> RouterM m ())

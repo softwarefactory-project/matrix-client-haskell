@@ -34,7 +34,9 @@ main = do
   matrixBot session $ MatrixBotOptions (`runReaderT` (42 :: Int)) $
     hoistRouter initializeRouterState $ customRouter $ \e -> do
     asyncGroup <- lift get
-    routeAsyncEvent asyncGroup e
+    routeSyncGroupEvent asyncGroup e
+    routeAsyncEvent (\() -> liftIO $ putStrLn "Async!") ()
+    routeAsyncEvent (\() -> liftIO $ fail "Async fail!") ()
     routeSyncEvent (\e' -> liftIO (print e') >> ask >>= liftIO . print) e
   pure ()
 
@@ -44,4 +46,4 @@ initializeRouterState a = mkAsyncGroup >>= evalStateT a
 
 mkAsyncGroup :: (IsSyncGroupManager m, MonadIO (MatrixBotBaseLevel m))
              => m (SyncGroup (MatrixBotBaseLevel m) BotEvent)
-mkAsyncGroup = newSyncGroup $ asyncHandler id $ liftIO . print
+mkAsyncGroup = newSyncGroup $ syncGroupHandler id $ liftIO . print

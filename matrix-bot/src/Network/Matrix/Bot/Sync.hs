@@ -42,6 +42,7 @@ import Network.Matrix.Client ( ClientSession
                              , syncPoll
                              )
 
+import Network.Matrix.Bot.Async
 import Network.Matrix.Bot.ErrorHandling
 import Network.Matrix.Bot.JSON
 import Network.Matrix.Bot.Router
@@ -86,6 +87,7 @@ syncLoop (BotEventRouter runRouterStack router) = do
     syncPoll session (Just filterID) initialSyncToken Nothing $ \sr -> do
     retry (saveSyncToken $ srNextBatch sr) >>= logOnLeft "Could not save sync token"
     runRouterM router sr
+    gcSyncGroups
 
 saveSyncToken :: (IsMatrixBot m, MonadIO m) => T.Text -> MatrixM m ()
 saveSyncToken token = do

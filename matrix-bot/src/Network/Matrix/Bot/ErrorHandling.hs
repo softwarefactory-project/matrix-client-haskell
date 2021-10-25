@@ -1,5 +1,6 @@
 module Network.Matrix.Bot.ErrorHandling ( dieOnLeft
                                         , logOnLeft
+                                        , logStderr
                                         ) where
 
 import Control.Monad.IO.Class ( MonadIO
@@ -18,4 +19,7 @@ dieOnLeft general (Left specific) =
 logOnLeft :: (Show e, MonadIO m) => String -> Either e a -> m ()
 logOnLeft _ (Right _) = pure ()
 logOnLeft general (Left specific) =
-  liftIO $ hPutStrLn stderr $ general ++ ": " ++ show specific
+  liftIO $ logStderr $ general ++ ": " ++ show specific
+
+logStderr :: (MonadIO m) => String -> m ()
+logStderr = liftIO . hPutStrLn stderr
