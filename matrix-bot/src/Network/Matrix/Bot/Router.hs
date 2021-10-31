@@ -4,6 +4,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
 module Network.Matrix.Bot.Router ( IsEventRouter(..)
@@ -27,7 +28,10 @@ import Control.Monad.Trans.Writer.Lazy ( WriterT
                                        , execWriterT
                                        , tell
                                        )
-import Network.Matrix.Client (SyncResult)
+import Network.Matrix.Client (SyncResult( SyncResult
+                                        , srNextBatch
+                                        )
+                             )
 
 import Network.Matrix.Bot.Async
 import Network.Matrix.Bot.Event
@@ -76,6 +80,7 @@ data BotEventRouter m where
 type RunnableBotEventRouter m = forall n. ( MatrixBotBase n
                                           , MatrixBotBaseLevel n ~ m
                                           , IsSyncGroupManager n
+                                          , MonadResyncableMatrixBot n
                                           ) => BotEventRouter n
 
 newtype RouterM m a = RouterM
@@ -94,6 +99,9 @@ instance MonadTrans RouterM where
 
 instance IsMatrixBot m => IsMatrixBot (RouterM m)
 
+instance (MonadResyncableMatrixBot m) => MonadResyncableMatrixBot (RouterM m) where
+  withSyncStartedAt syncToken = RouterM . withSyncStartedAt syncToken . unRouterM
+
 instance (HasMatrixBotBaseLevel m) => HasMatrixBotBaseLevel (RouterM m) where
   type MatrixBotBaseLevel (RouterM m) = MatrixBotBaseLevel m
 
@@ -107,15 +115,15 @@ runRouterM :: (HasMatrixBotBaseLevel m, MatrixBotBase (MatrixBotBaseLevel m))
            => (BotEvent -> RouterM m ())
            -> SyncResult
            -> m ()
-runRouterM router = mapM_ routeEvent . extractBotEvents
+runRouterM router sr@SyncResult{srNextBatch} = mapM_ routeEvent $ extractBotEvents sr
   where routeEvent e =
-          execWriterT (unRouterM $ router e) >>= mapM_ (liftBotBase . syncGroupCall)
+          execWriterT (unRouterM $ router e) >>= mapM_ (liftBotBase . syncGroupCall srNextBatch)
 
 customRouter :: ( IsSyncGroupManager m
                 , MatrixBotBase m
                 , MatrixBotBase (MatrixBotBaseLevel m)
                 )
-             => (forall n. (IsEventRouter (n m), MonadTrans n, MatrixBotBaseLevel (n m) ~ MatrixBotBaseLevel m) => BotEvent -> (n m) ())
+             => (BotEvent -> RouterM m ())
              -> BotEventRouter m
 customRouter = BotEventRouter id
 

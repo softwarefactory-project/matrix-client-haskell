@@ -74,7 +74,7 @@ getInitialSyncToken session userID =
    Left e -> Left e
    Right x -> Right (Just $ stadSyncToken x)
 
-syncLoop :: (MatrixBotBase m, MonadUnliftIO m)
+syncLoop :: (MatrixBotBase m, MonadUnliftIO m, MonadResyncableMatrixBot m)
          => RunnableBotEventRouter m
          -> MatrixM m ()
 syncLoop (BotEventRouter runRouterStack router) = do

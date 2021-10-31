@@ -8,6 +8,7 @@
 module Network.Matrix.Bot.State ( MatrixBotBase
                                 , HasMatrixBotBaseLevel(..)
                                 , IsMatrixBot(..)
+                                , MonadResyncableMatrixBot(..)
                                 , MatrixBot
                                 , runMatrixBot
                                 ) where
@@ -18,15 +19,20 @@ import Control.Monad.Catch ( MonadCatch
                            )
 import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.IO.Unlift (MonadUnliftIO)
+import Control.Monad.Morph ( MFunctor
+                           , hoist
+                           )
 import Control.Monad.Trans.Class ( MonadTrans
                                  , lift
                                  )
 import Control.Monad.Trans.Reader ( ReaderT
                                   , asks
+                                  , local
                                   , runReaderT
                                   )
 import Control.Monad.Trans.State (StateT)
-import Control.Monad.Trans.Resource (ResourceT)
+import Control.Monad.Trans.Resource.Internal (ResourceT(ResourceT, unResourceT))
+import Control.Monad.Trans.Writer (WriterT)
 import qualified Data.Text as T
 import Network.Matrix.Client ( ClientSession
                              , UserID
@@ -51,6 +57,19 @@ class (Monad m) => IsMatrixBot m where
 instance IsMatrixBot m => IsMatrixBot (ResourceT m)
 instance IsMatrixBot m => IsMatrixBot (ReaderT r m)
 instance IsMatrixBot m => IsMatrixBot (StateT s m)
+instance (IsMatrixBot m, Monoid w) => IsMatrixBot (WriterT w m)
+
+class (IsMatrixBot m) => MonadResyncableMatrixBot m where
+  withSyncStartedAt :: Maybe T.Text -> m a -> m a
+  default withSyncStartedAt :: (m ~ m' n, MFunctor m', MonadResyncableMatrixBot n)
+                            => Maybe T.Text -> m a -> m a
+  withSyncStartedAt syncToken = hoist $ withSyncStartedAt syncToken
+
+instance MonadResyncableMatrixBot m => MonadResyncableMatrixBot (ResourceT m) where
+  withSyncStartedAt syncToken = ResourceT . (withSyncStartedAt syncToken.) . unResourceT
+instance MonadResyncableMatrixBot m => MonadResyncableMatrixBot (ReaderT r m)
+instance MonadResyncableMatrixBot m => MonadResyncableMatrixBot (StateT r m)
+instance (MonadResyncableMatrixBot m, Monoid w) => MonadResyncableMatrixBot (WriterT w m)
 
 -- | 'Network.Matrix.Bot.matrixBot' provides a base monad transformer
 -- stack (optionally including transformer provided by the user
@@ -96,3 +115,7 @@ instance Monad m => IsMatrixBot (MatrixBot m) where
   clientSession = MatrixBot $ asks mbeSession
   myUserID = MatrixBot $ asks mbeUserID
   syncedSince = MatrixBot $ asks mbeSyncedSince
+
+instance Monad m => MonadResyncableMatrixBot (MatrixBot m) where
+  withSyncStartedAt syncStart (MatrixBot ac) =
+    MatrixBot $ local (\env -> env { mbeSyncedSince = syncStart }) ac
