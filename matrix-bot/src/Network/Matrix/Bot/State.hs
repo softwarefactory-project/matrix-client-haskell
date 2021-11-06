@@ -6,7 +6,6 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeFamilies #-}
 module Network.Matrix.Bot.State ( MatrixBotBase
-                                , HasMatrixBotBaseLevel(..)
                                 , IsMatrixBot(..)
                                 , MonadResyncableMatrixBot(..)
                                 , MatrixBot
@@ -70,24 +69,6 @@ instance MonadResyncableMatrixBot m => MonadResyncableMatrixBot (ResourceT m) wh
 instance MonadResyncableMatrixBot m => MonadResyncableMatrixBot (ReaderT r m)
 instance MonadResyncableMatrixBot m => MonadResyncableMatrixBot (StateT r m)
 instance (MonadResyncableMatrixBot m, Monoid w) => MonadResyncableMatrixBot (WriterT w m)
-
--- | 'Network.Matrix.Bot.matrixBot' provides a base monad transformer
--- stack (optionally including transformer provided by the user
--- through 'Network.Matrix.Bot.runBotT'). But in some places other
--- transformers are stacked on top of this base transformer. In those
--- cases, this class allows lifting operations in the base monad up
--- the whole transformer stack.
-class (IsMatrixBot m, IsMatrixBot (MatrixBotBaseLevel m)) => HasMatrixBotBaseLevel m where
-  type MatrixBotBaseLevel m :: * -> *
-  liftBotBase :: MatrixBotBaseLevel m a -> m a
-  default liftBotBase  :: ( m ~ m' n, MonadTrans m', HasMatrixBotBaseLevel n
-                          , MatrixBotBaseLevel m ~ MatrixBotBaseLevel n
-                          )
-                       => MatrixBotBaseLevel m a -> m a
-  liftBotBase = lift . liftBotBase
-
-instance HasMatrixBotBaseLevel m => HasMatrixBotBaseLevel (StateT s m) where
-  type MatrixBotBaseLevel (StateT s m) = MatrixBotBaseLevel m
 
 data MatrixBotEnv = MatrixBotEnv
   { mbeUserID :: UserID

@@ -3,18 +3,7 @@
 -- | The matrix-bot entrypoint
 module MatrixBot.Main where
 
-import Control.Monad.Catch (MonadCatch)
-import Control.Monad.IO.Class ( MonadIO
-                              , liftIO
-                              )
-import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.Reader ( ask
-                                  , runReaderT
-                                  )
-import Control.Monad.Trans.State ( StateT
-                                 , evalStateT
-                                 , get
-                                 )
+import Control.Monad.IO.Class (liftIO)
 import qualified Data.Text as T
 import Network.Matrix.Client ( createSession
                              , getTokenFromEnv
@@ -32,42 +21,32 @@ main = do
   [homeserver] <- getArgs
   token <- getTokenFromEnv "MATRIX_BOT_TOKEN"
   session <- createSession (T.pack homeserver) token
-  matrixBot session $ MatrixBotOptions (`runReaderT` (42 :: Int)) $
-    hoistRouter initializeRouterState $ customRouter $ \e -> do
+  matrixBot session $ MatrixBotOptions (pure (42 :: Int)) $ \r ->
+    customRouter initRouterState $ \s@(asyncGroup, failGroup) e -> do
     withSyncStartedAt Nothing $ pure ()
-    (asyncGroup, failGroup) <- lift get
     routeSyncGroupEvent asyncGroup e
     routeSyncGroupEvent failGroup e
     routeAsyncEvent (\() -> liftIO $ putStrLn "Async!") ()
     routeAsyncEvent (\() -> liftIO $ fail "Async fail!") ()
-    routeSyncEvent (\() -> liftIO (putStrLn "Sync!") >> ask >>= liftIO . print) ()
+    routeSyncEvent (\() -> liftIO (putStrLn "Sync!") >> liftIO (print r)) ()
     routeSyncEvent (\() -> liftIO $ fail "Sync fail!") ()
+    pure s
   pure ()
 
-initializeRouterState :: ( IsSyncGroupManager m
-                         , MonadIO (MatrixBotBaseLevel m)
-                         , MonadCatch (MatrixBotBaseLevel m)
-                         , MonadResyncableMatrixBot (MatrixBotBaseLevel m)
-                         )
-                      => StateT (SyncGroup (MatrixBotBaseLevel m) BotEvent, SyncGroup (MatrixBotBaseLevel m) BotEvent) m a -> m a
-initializeRouterState a = do
-  succGroup <- mkAsyncGroup
-  failGroup <- mkFailGroup
-  evalStateT a (succGroup, failGroup)
+initRouterState :: ( IsSyncGroupManager m
+                   )
+                => m (SyncGroup BotEvent, SyncGroup BotEvent)
+initRouterState = (,) <$> mkAsyncGroup <*> mkFailGroup
 
 mkAsyncGroup :: ( IsSyncGroupManager m
-                , MonadIO (MatrixBotBaseLevel m)
-                , MonadCatch (MatrixBotBaseLevel m)
-                , MonadResyncableMatrixBot (MatrixBotBaseLevel m)
                 )
-             => m (SyncGroup (MatrixBotBaseLevel m) BotEvent)
-mkAsyncGroup = newSyncGroup $ syncGroupHandler id $ const $ liftIO $ putStrLn "Sync group!"
+             => m (SyncGroup BotEvent)
+mkAsyncGroup = newSyncGroup $ syncGroupHandler (pure ()) $ \_ _ ->
+  liftIO $ putStrLn "Sync group!"
 
 mkFailGroup :: ( IsSyncGroupManager m
-               , MonadIO (MatrixBotBaseLevel m)
-               , MonadCatch (MatrixBotBaseLevel m)
-               , MonadResyncableMatrixBot (MatrixBotBaseLevel m)
                , Show e
                )
-            => m (SyncGroup (MatrixBotBaseLevel m) e)
-mkFailGroup = newSyncGroup $ syncGroupHandler id $ \e -> liftIO $ print e >> putStrLn "Async will fail!" >> fail "sync group fail!"
+            => m (SyncGroup e)
+mkFailGroup = newSyncGroup $ syncGroupHandler (pure ()) $ \_ e ->
+  liftIO $ print e >> putStrLn "Async will fail!" >> fail "sync group fail!"

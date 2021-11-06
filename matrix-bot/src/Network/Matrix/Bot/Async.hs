@@ -75,23 +75,22 @@ import qualified Data.Text as T
 import Network.Matrix.Bot.ErrorHandling
 import Network.Matrix.Bot.State
 
-data SyncGroup (m :: * -> *) a = SyncGroup (Async ()) (TBMQueue (a, T.Text, Maybe (MVar ())))
+data SyncGroup a = SyncGroup (Async ()) (TBMQueue (a, T.Text, Maybe (MVar ())))
 
 data SyncGroupCall m where
-  AsyncGroupCall :: SyncGroup m a -> a -> Maybe (MVar ()) -> SyncGroupCall m
+  AsyncGroupCall :: SyncGroup a -> a -> Maybe (MVar ()) -> SyncGroupCall m
   SyncCall :: (a -> m ()) -> a -> SyncGroupCall m
 
 newtype AsyncHandler m a = AsyncHandler (TBMQueue (a, T.Text, Maybe (MVar ())) -> m ())
 
-class (IsMatrixBot m, HasMatrixBotBaseLevel m) => IsSyncGroupManager m where
-  newSyncGroup :: AsyncHandler (MatrixBotBaseLevel m) a
-               -> m (SyncGroup (MatrixBotBaseLevel m) a)
+class (IsMatrixBot m) => IsSyncGroupManager m where
+  newSyncGroup :: (forall n. (MatrixBotBase n, MonadResyncableMatrixBot n) => AsyncHandler n a)
+               -> m (SyncGroup a)
   default newSyncGroup :: ( m ~ m1 m2, MonadTrans m1, IsSyncGroupManager m2
-                          , MatrixBotBaseLevel m ~ MatrixBotBaseLevel m2
                           )
-                       => AsyncHandler (MatrixBotBaseLevel m) a
-                       -> m (SyncGroup (MatrixBotBaseLevel m) a)
-  newSyncGroup = lift . newSyncGroup
+                       => (forall n. (MatrixBotBase n, MonadResyncableMatrixBot n) => AsyncHandler n a)
+                       -> m (SyncGroup a)
+  newSyncGroup a = lift $ newSyncGroup a
 
   gcSyncGroups :: m ()
   default gcSyncGroups :: (m ~ m1 m2, MonadTrans m1, IsSyncGroupManager m2) => m ()
@@ -121,13 +120,9 @@ instance MonadResyncableMatrixBot m => MonadResyncableMatrixBot (SyncGroupManage
 
 instance IsMatrixBot m => IsMatrixBot (SyncGroupManager m)
 
-instance (IsMatrixBot m) => HasMatrixBotBaseLevel (SyncGroupManager m) where
-  type MatrixBotBaseLevel (SyncGroupManager m) = m
-  liftBotBase = lift
-
-instance (IsMatrixBot m, MonadUnliftIO m) => IsSyncGroupManager (SyncGroupManager m) where
+instance (MatrixBotBase m, MonadResyncableMatrixBot m, MonadUnliftIO m) => IsSyncGroupManager (SyncGroupManager m) where
   newSyncGroup (AsyncHandler handler) = do
-    unliftHandler <- liftBotBase askUnliftIO
+    unliftHandler <- lift askUnliftIO
     SyncGroupManager $ do
       queue <- liftIO $ newTBMQueueIO 20
       (releaseKey, thread) <- resourceTAsync unliftHandler $ handler queue
@@ -140,15 +135,15 @@ instance (IsMatrixBot m, MonadUnliftIO m) => IsSyncGroupManager (SyncGroupManage
     mapM_ (\(_, rk, _) -> release rk) ended
     modify $ \allThreads -> foldl' (\acc (thread, _, _) -> M.delete thread acc) allThreads ended
 
-syncGroupHandler :: (MonadIO n, MonadCatch m, MonadIO m, MonadResyncableMatrixBot m)
-                 => (forall b. n b -> m b)
-                 -> (a -> n ())
+syncGroupHandler :: (MatrixBotBase m, MonadResyncableMatrixBot m)
+                 => m s
+                 -> (s -> a -> m s)
                  -> AsyncHandler m a
-syncGroupHandler runT handler = AsyncHandler $ \queue -> do
+syncGroupHandler mkS handler = AsyncHandler $ \queue -> do
   lastSeenSyncTokenRef <- syncedSince >>= liftIO . newIORef
   startHandler lastSeenSyncTokenRef queue
   where startHandler lastSeenSyncTokenRef queue =
-          catch (runT $ go lastSeenSyncTokenRef queue) (restart lastSeenSyncTokenRef queue)
+          catch (mkS >>= go lastSeenSyncTokenRef queue) (restart lastSeenSyncTokenRef queue)
         restart lastSeenSyncTokenRef queue e =
           case fromException e of
             Just AsyncCancelled -> pure ()
@@ -157,14 +152,15 @@ syncGroupHandler runT handler = AsyncHandler $ \queue -> do
                 ++ show (e :: SomeException)
               resyncAt <- liftIO $ discardUntilNextSyncToken lastSeenSyncTokenRef queue
               withSyncStartedAt resyncAt $ startHandler lastSeenSyncTokenRef queue
-        go lastSeenSyncTokenRef queue = do
+        go lastSeenSyncTokenRef queue s = do
           event <- liftIO $ atomically $ readTBMQueue queue
           case event of
             Nothing -> pure ()
-            Just (e, syncToken, done) -> liftIO (writeIORef lastSeenSyncTokenRef (Just syncToken))
-                                         *> handler e
-                                         *> signalDone done
-                                         *> go lastSeenSyncTokenRef queue
+            Just (e, syncToken, done) -> do
+              liftIO (writeIORef lastSeenSyncTokenRef (Just syncToken))
+              s' <- handler s e
+              signalDone done
+              go lastSeenSyncTokenRef queue s'
         discardUntilNextSyncToken lastSeenSyncTokenRef queue = do
           lastSeenSyncTokenMaybe <- readIORef lastSeenSyncTokenRef
           case lastSeenSyncTokenMaybe of
@@ -195,7 +191,7 @@ signalDone (Just done) = liftIO $ putMVar done ()
 syncCall :: (a -> m ()) -> a -> SyncGroupCall m
 syncCall = SyncCall
 
-asyncGroupCall :: SyncGroup m a -> a -> Maybe (MVar ()) -> SyncGroupCall m
+asyncGroupCall :: SyncGroup a -> a -> Maybe (MVar ()) -> SyncGroupCall m
 asyncGroupCall = AsyncGroupCall
 
 syncGroupCall :: (MatrixBotBase m) => T.Text -> SyncGroupCall m -> m ()
