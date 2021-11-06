@@ -65,7 +65,7 @@ instance AccountData SyncTokenAccountData where
   accountDataType _ = syncTokenAccountDataType
 
 syncTokenAccountDataType :: T.Text
-syncTokenAccountDataType = "invalid.example.fixme.use.real.domain.sync_token"
+syncTokenAccountDataType = "org.haskell.hackage.matrix-bot.sync_token"
 
 getInitialSyncToken :: (MonadIO m)
                     => ClientSession -> UserID -> MatrixM m (Maybe T.Text)
