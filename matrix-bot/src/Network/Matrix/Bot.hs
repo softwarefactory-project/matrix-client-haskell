@@ -1,6 +1,19 @@
-module Network.Matrix.Bot ( MatrixBot(..)
-                          , runMatrixBot
-                          ) where
+module Network.Matrix.Bot
+  ( -- * Running a Matrix bot
+    MatrixBot(..)
+  , runMatrixBot
+    -- * Handling events
+  , BotEventRouter
+  , customRouter
+  , routeSyncEvent
+  , routeAsyncEvent
+    -- * Inspecting events
+  , BotEvent(..)
+    -- * Misc
+  , MonadMatrixBot(..)
+  , MonadMatrixBotBase
+  , MonadResyncableMatrixBot(..)
+  ) where
 
 import Control.Monad (forever)
 import Control.Monad.IO.Class (liftIO)
@@ -8,6 +21,7 @@ import Network.Matrix.Client
 
 import Network.Matrix.Bot.Async
 import Network.Matrix.Bot.ErrorHandling
+import Network.Matrix.Bot.Event
 import Network.Matrix.Bot.Router
 import Network.Matrix.Bot.State
 import Network.Matrix.Bot.Sync

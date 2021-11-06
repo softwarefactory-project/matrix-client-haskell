@@ -11,9 +11,7 @@ import System.Environment (getArgs)
 
 import Network.Matrix.Bot
 import Network.Matrix.Bot.Async
-import Network.Matrix.Bot.Event
 import Network.Matrix.Bot.Router
-import Network.Matrix.Bot.State
 
 main :: IO ()
 main = do
