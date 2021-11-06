@@ -1,5 +1,3 @@
-{-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE RecordWildCards #-}
 module Network.Matrix.Bot.Event ( BotEvent(..)
                                 , extractBotEvents
                                 ) where

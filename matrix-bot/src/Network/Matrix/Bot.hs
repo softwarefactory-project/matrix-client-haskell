@@ -1,9 +1,5 @@
-{-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE RecordWildCards #-}
-module Network.Matrix.Bot ( MatrixBotOptions(..)
-                          , matrixBot
+module Network.Matrix.Bot ( MatrixBot(..)
+                          , runMatrixBot
                           ) where
 
 import Control.Monad (forever)
