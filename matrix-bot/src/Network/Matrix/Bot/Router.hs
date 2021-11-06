@@ -1,7 +1,7 @@
-module Network.Matrix.Bot.Router ( IsEventRouter(..)
+module Network.Matrix.Bot.Router ( MonadEventRouter(..)
                                  , routeAsyncEvent
                                  , BotEventRouter(..)
-                                 , runRouterM
+                                 , runRouterT
                                  , customRouter
                                  ) where
 
@@ -30,21 +30,21 @@ import Network.Matrix.Bot.Async
 import Network.Matrix.Bot.Event
 import Network.Matrix.Bot.State
 
-class (IsSyncGroupManager m) => IsEventRouter m where
-  routeSyncEvent :: (forall n. (MatrixBotBase n, MonadResyncableMatrixBot n) => a -> n ())
+class (MonadSyncGroupManager m) => MonadEventRouter m where
+  routeSyncEvent :: (forall n. (MonadMatrixBotBase n, MonadResyncableMatrixBot n) => a -> n ())
                  -> a -> m ()
-  default routeSyncEvent :: ( m ~ m1 m2, MonadTrans m1, IsEventRouter m2)
-                         => (forall n. (MatrixBotBase n, MonadResyncableMatrixBot n) => a -> n ())
+  default routeSyncEvent :: ( m ~ m1 m2, MonadTrans m1, MonadEventRouter m2)
+                         => (forall n. (MonadMatrixBotBase n, MonadResyncableMatrixBot n) => a -> n ())
                          -> a -> m ()
   routeSyncEvent f = lift . routeSyncEvent f
 
   routeSyncGroupEvent :: SyncGroup a -> a -> m ()
-  default routeSyncGroupEvent :: ( m ~ m1 m2, MonadTrans m1, IsEventRouter m2)
+  default routeSyncGroupEvent :: ( m ~ m1 m2, MonadTrans m1, MonadEventRouter m2)
                           => SyncGroup a -> a -> m ()
   routeSyncGroupEvent g = lift . routeSyncGroupEvent g
 
-routeAsyncEvent :: (IsEventRouter m)
-                => (forall n. (MatrixBotBase n, MonadResyncableMatrixBot n) => a -> n ())
+routeAsyncEvent :: (MonadEventRouter m)
+                => (forall n. (MonadMatrixBotBase n, MonadResyncableMatrixBot n) => a -> n ())
                 -> a -> m ()
 routeAsyncEvent handle e = do
   syncGroup <- newSyncGroup $ asyncHandler handle
@@ -54,10 +54,10 @@ routeAsyncEvent handle e = do
 -- that is executed on top of the monad @m@.
 data BotEventRouter m = forall s. BotEventRouter
   { initializeRouterState :: m s
-  , berDoRoute :: s -> BotEvent -> RouterM m s
+  , berDoRoute :: s -> BotEvent -> RouterT m s
   }
 
-newtype RouterM m a = RouterM
+newtype RouterT m a = RouterT
   { unRouterM :: WriterT [SyncGroupCall m] m a }
   deriving ( Functor
            , Applicative
@@ -68,36 +68,36 @@ newtype RouterM m a = RouterM
            , MonadMask
            )
 
-instance MonadTrans RouterM where
-  lift = RouterM . lift
+instance MonadTrans RouterT where
+  lift = RouterT . lift
 
-instance IsMatrixBot m => IsMatrixBot (RouterM m)
+instance MonadMatrixBot m => MonadMatrixBot (RouterT m)
 
-instance (MonadResyncableMatrixBot m) => MonadResyncableMatrixBot (RouterM m) where
-  withSyncStartedAt syncToken = RouterM . withSyncStartedAt syncToken . unRouterM
+instance (MonadResyncableMatrixBot m) => MonadResyncableMatrixBot (RouterT m) where
+  withSyncStartedAt syncToken = RouterT . withSyncStartedAt syncToken . unRouterM
 
-instance (IsSyncGroupManager m) => IsSyncGroupManager (RouterM m)
+instance (MonadSyncGroupManager m) => MonadSyncGroupManager (RouterT m)
 
-instance (MatrixBotBase m, MonadResyncableMatrixBot m, IsSyncGroupManager m) => IsEventRouter (RouterM m) where
-  routeSyncEvent f x = RouterM $ tell [syncCall f x]
-  routeSyncGroupEvent group x = RouterM $ tell [asyncGroupCall group x Nothing]
+instance (MonadMatrixBotBase m, MonadResyncableMatrixBot m, MonadSyncGroupManager m) => MonadEventRouter (RouterT m) where
+  routeSyncEvent f x = RouterT $ tell [syncCall f x]
+  routeSyncGroupEvent group x = RouterT $ tell [asyncGroupCall group x Nothing]
 
-runRouterM :: (MatrixBotBase m)
-           => (s -> BotEvent -> RouterM m s)
+runRouterT :: (MonadMatrixBotBase m)
+           => (s -> BotEvent -> RouterT m s)
            -> SyncResult
            -> StateT s m ()
-runRouterM router sr@SyncResult{srNextBatch} = mapM_ routeEvent $ extractBotEvents sr
+runRouterT router sr@SyncResult{srNextBatch} = mapM_ routeEvent $ extractBotEvents sr
   where routeEvent e = do
           s <- get
           (s', cs) <- lift $ runWriterT (unRouterM $ router s e)
           put s'
           mapM_ (lift . syncGroupCall srNextBatch) cs
 
-customRouter :: ( MatrixBotBase m
+customRouter :: ( MonadMatrixBotBase m
                 , MonadResyncableMatrixBot m
-                , IsSyncGroupManager m
+                , MonadSyncGroupManager m
                 )
              => m s
-             -> (forall n. (MatrixBotBase n, MonadResyncableMatrixBot n, IsSyncGroupManager n, IsEventRouter n) => s -> BotEvent -> n s)
+             -> (forall n. (MonadMatrixBotBase n, MonadResyncableMatrixBot n, MonadSyncGroupManager n, MonadEventRouter n) => s -> BotEvent -> n s)
              -> BotEventRouter m
 customRouter = BotEventRouter

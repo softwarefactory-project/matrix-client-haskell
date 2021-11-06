@@ -6,7 +6,7 @@ module Network.Matrix.Bot.Async ( AsyncHandler
                                 , syncCall
                                 , asyncGroupCall
                                 , syncGroupCall
-                                , IsSyncGroupManager(..)
+                                , MonadSyncGroupManager(..)
                                 , runSyncGroupManager
                                 ) where
 
@@ -76,23 +76,23 @@ data SyncGroupCall m where
 
 newtype AsyncHandler m a = AsyncHandler (TBMQueue (a, T.Text, Maybe (MVar ())) -> m ())
 
-class (IsMatrixBot m) => IsSyncGroupManager m where
-  newSyncGroup :: (forall n. (MatrixBotBase n, MonadResyncableMatrixBot n) => AsyncHandler n a)
+class (MonadMatrixBot m) => MonadSyncGroupManager m where
+  newSyncGroup :: (forall n. (MonadMatrixBotBase n, MonadResyncableMatrixBot n) => AsyncHandler n a)
                -> m (SyncGroup a)
-  default newSyncGroup :: ( m ~ m1 m2, MonadTrans m1, IsSyncGroupManager m2
+  default newSyncGroup :: ( m ~ m1 m2, MonadTrans m1, MonadSyncGroupManager m2
                           )
-                       => (forall n. (MatrixBotBase n, MonadResyncableMatrixBot n) => AsyncHandler n a)
+                       => (forall n. (MonadMatrixBotBase n, MonadResyncableMatrixBot n) => AsyncHandler n a)
                        -> m (SyncGroup a)
   newSyncGroup a = lift $ newSyncGroup a
 
   gcSyncGroups :: m ()
-  default gcSyncGroups :: (m ~ m1 m2, MonadTrans m1, IsSyncGroupManager m2) => m ()
+  default gcSyncGroups :: (m ~ m1 m2, MonadTrans m1, MonadSyncGroupManager m2) => m ()
   gcSyncGroups = lift gcSyncGroups
 
-instance (IsSyncGroupManager m) => IsSyncGroupManager (StateT s m)
+instance (MonadSyncGroupManager m) => MonadSyncGroupManager (StateT s m)
 
-newtype SyncGroupManager m a =
-  SyncGroupManager (StateT (M.Map (Async ()) ReleaseKey) (ResourceT m) a)
+newtype SyncGroupManagerT m a =
+  SyncGroupManagerT (StateT (M.Map (Async ()) ReleaseKey) (ResourceT m) a)
   deriving ( Functor
            , Applicative
            , Monad
@@ -102,33 +102,33 @@ newtype SyncGroupManager m a =
            , MonadMask
            )
 
-runSyncGroupManager :: (MonadUnliftIO m) => SyncGroupManager m a -> m a
-runSyncGroupManager (SyncGroupManager a) = runResourceT $ evalStateT a M.empty
+runSyncGroupManager :: (MonadUnliftIO m) => SyncGroupManagerT m a -> m a
+runSyncGroupManager (SyncGroupManagerT a) = runResourceT $ evalStateT a M.empty
 
-instance MonadTrans SyncGroupManager where
-  lift = SyncGroupManager . lift . lift
+instance MonadTrans SyncGroupManagerT where
+  lift = SyncGroupManagerT . lift . lift
 
-instance MonadResyncableMatrixBot m => MonadResyncableMatrixBot (SyncGroupManager m) where
-  withSyncStartedAt st (SyncGroupManager a) = SyncGroupManager $ withSyncStartedAt st a
+instance MonadResyncableMatrixBot m => MonadResyncableMatrixBot (SyncGroupManagerT m) where
+  withSyncStartedAt st (SyncGroupManagerT a) = SyncGroupManagerT $ withSyncStartedAt st a
 
-instance IsMatrixBot m => IsMatrixBot (SyncGroupManager m)
+instance MonadMatrixBot m => MonadMatrixBot (SyncGroupManagerT m)
 
-instance (MatrixBotBase m, MonadResyncableMatrixBot m, MonadUnliftIO m) => IsSyncGroupManager (SyncGroupManager m) where
+instance (MonadMatrixBotBase m, MonadResyncableMatrixBot m, MonadUnliftIO m) => MonadSyncGroupManager (SyncGroupManagerT m) where
   newSyncGroup (AsyncHandler handler) = do
     unliftHandler <- lift askUnliftIO
-    SyncGroupManager $ do
+    SyncGroupManagerT $ do
       queue <- liftIO $ newTBMQueueIO 20
       (releaseKey, thread) <- resourceTAsync unliftHandler $ handler queue
       modify $ M.insert thread releaseKey
       pure $ SyncGroup thread queue
 
-  gcSyncGroups = SyncGroupManager $ do
+  gcSyncGroups = SyncGroupManagerT $ do
     ended <- get >>= liftIO
       . fmap catMaybes . traverse (\(thread, rk) -> fmap (thread,rk,) <$> poll thread) . M.toList
     mapM_ (\(_, rk, _) -> release rk) ended
     modify $ \allThreads -> foldl' (\acc (thread, _, _) -> M.delete thread acc) allThreads ended
 
-syncGroupHandler :: (MatrixBotBase m, MonadResyncableMatrixBot m)
+syncGroupHandler :: (MonadMatrixBotBase m, MonadResyncableMatrixBot m)
                  => m s
                  -> (s -> a -> m s)
                  -> AsyncHandler m a
@@ -187,7 +187,7 @@ syncCall = SyncCall
 asyncGroupCall :: SyncGroup a -> a -> Maybe (MVar ()) -> SyncGroupCall m
 asyncGroupCall = AsyncGroupCall
 
-syncGroupCall :: (MatrixBotBase m) => T.Text -> SyncGroupCall m -> m ()
+syncGroupCall :: (MonadMatrixBotBase m) => T.Text -> SyncGroupCall m -> m ()
 syncGroupCall _syncToken (SyncCall f x) = do
   result <- try $ f x
   case result of

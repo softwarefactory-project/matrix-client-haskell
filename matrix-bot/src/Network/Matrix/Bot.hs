@@ -12,20 +12,20 @@ import Network.Matrix.Bot.Router
 import Network.Matrix.Bot.State
 import Network.Matrix.Bot.Sync
 
-data MatrixBotOptions = forall r. MatrixBotOptions
-     { initializeBotEnv :: forall m. (MatrixBotBase m) => m r
-     , botRouter :: forall m. (MatrixBotBase m, MonadResyncableMatrixBot m, IsSyncGroupManager m)
+data MatrixBot = forall r. MatrixBot
+     { initializeBotEnv :: forall m. (MonadMatrixBotBase m) => m r
+     , botRouter :: forall m. (MonadMatrixBotBase m, MonadResyncableMatrixBot m, MonadSyncGroupManager m)
                  => r -> BotEventRouter m
      }
 
-matrixBot :: ClientSession
-          -> MatrixBotOptions
+runMatrixBot :: ClientSession
+          -> MatrixBot
           -> IO ()
-matrixBot session MatrixBotOptions{..} = do
+runMatrixBot session MatrixBot{..} = do
   userID <- retry (getTokenOwner session) >>= dieOnLeft "Could not determine own MXID"
   initialSyncToken <- retry (getInitialSyncToken session userID)
     >>= dieOnLeft "Could not retrieve saved sync token"
   liftIO $ print initialSyncToken
-  runMatrixBot session userID initialSyncToken $ do
+  runMatrixBotT session userID initialSyncToken $ do
     r <- initializeBotEnv
     forever $ syncLoop (botRouter r) >>= logOnLeft "Error while syncing"

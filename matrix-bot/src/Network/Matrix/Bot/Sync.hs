@@ -70,8 +70,8 @@ getInitialSyncToken session userID =
    Left e -> Left e
    Right x -> Right (Just $ stadSyncToken x)
 
-syncLoop :: (MatrixBotBase m, MonadUnliftIO m, MonadResyncableMatrixBot m)
-         => (forall n. (MatrixBotBase n, MonadResyncableMatrixBot n, IsSyncGroupManager n) => BotEventRouter n)
+syncLoop :: (MonadMatrixBotBase m, MonadUnliftIO m, MonadResyncableMatrixBot m)
+         => (forall n. (MonadMatrixBotBase n, MonadResyncableMatrixBot n, MonadSyncGroupManager n) => BotEventRouter n)
          -> MatrixM m ()
 syncLoop (BotEventRouter mkIRS router) = do
   session <- clientSession
@@ -87,7 +87,7 @@ syncLoop (BotEventRouter mkIRS router) = do
       runRouterM router sr
       gcSyncGroups
 
-saveSyncToken :: (IsMatrixBot m, MonadIO m) => T.Text -> MatrixM m ()
+saveSyncToken :: (MonadMatrixBot m, MonadIO m) => T.Text -> MatrixM m ()
 saveSyncToken token = do
   session <- clientSession
   userID <- myUserID

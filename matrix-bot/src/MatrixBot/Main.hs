@@ -20,30 +20,31 @@ main = do
   [homeserver] <- getArgs
   token <- getTokenFromEnv "MATRIX_BOT_TOKEN"
   session <- createSession (T.pack homeserver) token
-  matrixBot session $ MatrixBotOptions (pure (42 :: Int)) $ \r ->
-    customRouter initRouterState $ \s@(asyncGroup, failGroup) e -> do
-    withSyncStartedAt Nothing $ pure ()
-    routeSyncGroupEvent asyncGroup e
-    routeSyncGroupEvent failGroup e
-    routeAsyncEvent (\() -> liftIO $ putStrLn "Async!") ()
-    routeAsyncEvent (\() -> liftIO $ fail "Async fail!") ()
-    routeSyncEvent (\() -> liftIO (putStrLn "Sync!") >> liftIO (print r)) ()
-    routeSyncEvent (\() -> liftIO $ fail "Sync fail!") ()
-    pure s
+  runMatrixBot session $ MatrixBot
+    { initializeBotEnv = pure (42 :: Int)
+    , botRouter = \r ->
+        customRouter initRouterState $ \s@(asyncGroup, failGroup) e -> do
+        withSyncStartedAt Nothing $ pure ()
+        routeSyncGroupEvent asyncGroup e
+        routeSyncGroupEvent failGroup e
+        routeAsyncEvent (\() -> liftIO $ putStrLn "Async!") ()
+        routeAsyncEvent (\() -> liftIO $ fail "Async fail!") ()
+        routeSyncEvent (\() -> liftIO (putStrLn "Sync!") >> liftIO (print r)) ()
+        routeSyncEvent (\() -> liftIO $ fail "Sync fail!") ()
+        pure s
+    }
   pure ()
 
-initRouterState :: ( IsSyncGroupManager m
-                   )
+initRouterState :: (MonadSyncGroupManager m)
                 => m (SyncGroup BotEvent, SyncGroup BotEvent)
 initRouterState = (,) <$> mkAsyncGroup <*> mkFailGroup
 
-mkAsyncGroup :: ( IsSyncGroupManager m
-                )
+mkAsyncGroup :: (MonadSyncGroupManager m)
              => m (SyncGroup BotEvent)
 mkAsyncGroup = newSyncGroup $ syncGroupHandler (pure ()) $ \_ _ ->
   liftIO $ putStrLn "Sync group!"
 
-mkFailGroup :: ( IsSyncGroupManager m
+mkFailGroup :: ( MonadSyncGroupManager m
                , Show e
                )
             => m (SyncGroup e)

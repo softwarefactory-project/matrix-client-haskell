@@ -1,8 +1,8 @@
-module Network.Matrix.Bot.State ( MatrixBotBase
-                                , IsMatrixBot(..)
+module Network.Matrix.Bot.State ( MonadMatrixBotBase
+                                , MonadMatrixBot(..)
                                 , MonadResyncableMatrixBot(..)
-                                , MatrixBot
-                                , runMatrixBot
+                                , MatrixBotT
+                                , runMatrixBotT
                                 ) where
 
 import Control.Monad.Catch ( MonadCatch
@@ -30,28 +30,28 @@ import Network.Matrix.Client ( ClientSession
                              , UserID
                              )
 
-type MatrixBotBase m = ( IsMatrixBot m
-                       , MonadIO m
-                       , MonadMask m
-                       )
+type MonadMatrixBotBase m = ( MonadMatrixBot m
+                            , MonadIO m
+                            , MonadMask m
+                            )
 
-class (Monad m) => IsMatrixBot m where
+class (Monad m) => MonadMatrixBot m where
   clientSession :: m ClientSession
-  default clientSession :: (m ~ m' n, MonadTrans m', IsMatrixBot n) => m ClientSession
+  default clientSession :: (m ~ m' n, MonadTrans m', MonadMatrixBot n) => m ClientSession
   clientSession = lift clientSession
   myUserID :: m UserID
-  default myUserID :: (m ~ m' n, MonadTrans m', IsMatrixBot n) => m UserID
+  default myUserID :: (m ~ m' n, MonadTrans m', MonadMatrixBot n) => m UserID
   myUserID = lift myUserID
   syncedSince :: m (Maybe T.Text)
-  default syncedSince :: (m ~ m' n, MonadTrans m', IsMatrixBot n) => m (Maybe T.Text)
+  default syncedSince :: (m ~ m' n, MonadTrans m', MonadMatrixBot n) => m (Maybe T.Text)
   syncedSince = lift syncedSince
 
-instance IsMatrixBot m => IsMatrixBot (ResourceT m)
-instance IsMatrixBot m => IsMatrixBot (ReaderT r m)
-instance IsMatrixBot m => IsMatrixBot (StateT s m)
-instance (IsMatrixBot m, Monoid w) => IsMatrixBot (WriterT w m)
+instance MonadMatrixBot m => MonadMatrixBot (ResourceT m)
+instance MonadMatrixBot m => MonadMatrixBot (ReaderT r m)
+instance MonadMatrixBot m => MonadMatrixBot (StateT s m)
+instance (MonadMatrixBot m, Monoid w) => MonadMatrixBot (WriterT w m)
 
-class (IsMatrixBot m) => MonadResyncableMatrixBot m where
+class (MonadMatrixBot m) => MonadResyncableMatrixBot m where
   withSyncStartedAt :: Maybe T.Text -> m a -> m a
   default withSyncStartedAt :: (m ~ m' n, MFunctor m', MonadResyncableMatrixBot n)
                             => Maybe T.Text -> m a -> m a
@@ -69,7 +69,7 @@ data MatrixBotEnv = MatrixBotEnv
   , mbeSyncedSince :: Maybe T.Text
   }
 
-newtype MatrixBot m a = MatrixBot (ReaderT MatrixBotEnv m a)
+newtype MatrixBotT m a = MatrixBotT (ReaderT MatrixBotEnv m a)
   deriving ( Functor
            , Applicative
            , Monad
@@ -81,15 +81,15 @@ newtype MatrixBot m a = MatrixBot (ReaderT MatrixBotEnv m a)
            , MonadUnliftIO
            )
 
-runMatrixBot :: ClientSession -> UserID -> Maybe T.Text -> MatrixBot m a -> m a
-runMatrixBot mbeSession mbeUserID mbeSyncedSince (MatrixBot ac) =
+runMatrixBotT :: ClientSession -> UserID -> Maybe T.Text -> MatrixBotT m a -> m a
+runMatrixBotT mbeSession mbeUserID mbeSyncedSince (MatrixBotT ac) =
   runReaderT ac MatrixBotEnv{..}
 
-instance Monad m => IsMatrixBot (MatrixBot m) where
-  clientSession = MatrixBot $ asks mbeSession
-  myUserID = MatrixBot $ asks mbeUserID
-  syncedSince = MatrixBot $ asks mbeSyncedSince
+instance Monad m => MonadMatrixBot (MatrixBotT m) where
+  clientSession = MatrixBotT $ asks mbeSession
+  myUserID = MatrixBotT $ asks mbeUserID
+  syncedSince = MatrixBotT $ asks mbeSyncedSince
 
-instance Monad m => MonadResyncableMatrixBot (MatrixBot m) where
-  withSyncStartedAt syncStart (MatrixBot ac) =
-    MatrixBot $ local (\env -> env { mbeSyncedSince = syncStart }) ac
+instance Monad m => MonadResyncableMatrixBot (MatrixBotT m) where
+  withSyncStartedAt syncStart (MatrixBotT ac) =
+    MatrixBotT $ local (\env -> env { mbeSyncedSince = syncStart }) ac
