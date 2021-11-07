@@ -14,9 +14,20 @@ import           Network.Matrix.Client
                      , TimelineSync(TimelineSync, tsEvents, tsPrevBatch)
                      )
 
+-- | An event that a matrix bot might want to react to. This doesn't
+-- necessarily correspond to on e event as defined by the matrix
+-- protocol, but is simply the unit of information the framework
+-- passes to event handlers.
 data BotEvent = BotRoomTimelineReceivedEvent RoomID (Maybe T.Text)
+                -- ^ A new timeline for a room was received along with a
+                -- sync token to retrieve previous history of the
+                -- room. This is mostly interesting for bots that are
+                -- interested in the history of rooms before the current
+                -- sync started.
               | BotRoomEvent RoomID RoomEvent
+                -- ^ A message has been received in a room.
               | BotInvitationEvent RoomID
+                -- ^ An invitation to a room has been received.
     deriving ( Show )
 
 extractBotEvents :: SyncResult -> [BotEvent]
