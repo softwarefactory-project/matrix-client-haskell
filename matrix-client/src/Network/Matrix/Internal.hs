@@ -14,10 +14,10 @@ import Control.Monad.Catch (Handler (Handler), MonadMask)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Retry (RetryStatus (..))
 import qualified Control.Retry as Retry
-import Data.Aeson (FromJSON (..), Value (Object), eitherDecode, (.:), (.:?))
+import Data.Aeson (FromJSON (..), Value (Object), encode, eitherDecode, object, withObject, (.:), (.:?), (.=))
 import Data.ByteString.Lazy (ByteString, toStrict)
 import Data.Hashable (Hashable)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (catMaybes, fromMaybe)
 import Data.Text (Text, pack, unpack)
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import Data.Text.IO (hPutStrLn)
@@ -29,6 +29,25 @@ import System.Environment (getEnv)
 import System.IO (stderr)
 
 newtype MatrixToken = MatrixToken Text
+newtype Username = Username { username :: Text }
+newtype DeviceId = DeviceId { deviceId :: Text }
+newtype InitialDeviceDisplayName = InitialDeviceDisplayName { initialDeviceDisplayName :: Text} 
+data LoginSecret = Password Text | Token Text
+
+data LoginResponse = LoginResponse
+  { lrUserId :: Text
+  , lrAccessToken :: Text
+  , lrHomeServer :: Text
+  , lrDeviceId :: Text
+  }
+
+instance FromJSON LoginResponse where
+  parseJSON = withObject "LoginResponse" $ \v -> do
+    userId' <- v .: "user_id"
+    accessToken' <- v .: "access_token"
+    homeServer' <- v .: "home_server"
+    deviceId' <- v .: "device_id"
+    pure $ LoginResponse userId' accessToken' homeServer' deviceId'
 
 getTokenFromEnv ::
   -- | The envirnoment variable name
@@ -65,6 +84,32 @@ mkRequest' baseUrl (MatrixToken token) auth path = do
   where
     authHeaders =
       [("Authorization", "Bearer " <> encodeUtf8 token) | auth]
+
+mkLoginRequest' :: Text -> Maybe DeviceId -> Maybe InitialDeviceDisplayName -> Username -> LoginSecret -> IO HTTP.Request
+mkLoginRequest' baseUrl did idn (Username name) secret' = do
+  let path = "/_matrix/client/r0/login"
+  initRequest <- HTTP.parseUrlThrow (unpack $ baseUrl <> path)
+
+  let (secretKey, secret, secretType) = case secret' of
+        Password pass -> ("password", pass, "m.login.password")
+        Token tok -> ("token", tok, "m.login.token")
+
+  let body = HTTP.RequestBodyLBS $ encode $ object $
+        [ "identifier" .= object [ "type" .= ("m.id.user" :: Text), "user" .= name ]
+        , secretKey  .= secret
+        , "type" .= (secretType :: Text)
+        ] <> catMaybes [ fmap (("device_id" .=) . deviceId) did
+                       , fmap (("initial_device_display_name" .=) . initialDeviceDisplayName) idn
+                       ]
+
+  pure $ initRequest { HTTP.method = "POST", HTTP.requestBody = body, HTTP.requestHeaders = [("Content-Type", "application/json")] }
+
+mkLogoutRequest' :: Text -> MatrixToken -> IO HTTP.Request
+mkLogoutRequest' baseUrl (MatrixToken token) = do
+  let path = "/_matrix/client/r0/logout"
+  initRequest <- HTTP.parseUrlThrow (unpack $ baseUrl <> path)
+  let headers = [("Authorization", encodeUtf8 $ "Bearer " <> token)]
+  pure $ initRequest { HTTP.method = "POST", HTTP.requestHeaders = headers }
 
 doRequest' :: FromJSON a => HTTP.Manager -> HTTP.Request -> IO (Either MatrixError a)
 doRequest' manager request = do
