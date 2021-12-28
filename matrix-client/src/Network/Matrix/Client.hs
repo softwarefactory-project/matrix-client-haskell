@@ -6,15 +6,24 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | This module contains the client-server API
 -- https://matrix.org/docs/spec/client_server/r0.6.1
 module Network.Matrix.Client
   ( -- * Client
     ClientSession,
+    LoginCredentials (..),
     MatrixToken (..),
+    Username (..),
+    DeviceId (..),
+    InitialDeviceDisplayName (..),
+    LoginSecret (..),
+    LoginResponse (..),
     getTokenFromEnv,
     createSession,
+    login,
+    logout,
 
     -- * API
     MatrixM,
@@ -111,6 +120,39 @@ import Network.Matrix.Room
 
 -- $setup
 -- >>> import Data.Aeson (decode)
+
+data LoginCredentials = LoginCredentials
+  { lUsername :: Username
+  , lLoginSecret :: LoginSecret
+  , lBaseUrl :: Text
+  , lDeviceId :: Maybe DeviceId
+  , lInitialDeviceDisplayName :: Maybe InitialDeviceDisplayName
+  }
+
+mkLoginRequest :: LoginCredentials -> IO HTTP.Request
+mkLoginRequest LoginCredentials {..} =
+  mkLoginRequest' lBaseUrl lDeviceId lInitialDeviceDisplayName lUsername lLoginSecret
+
+-- | 'login' allows you to generate a session token.
+login :: LoginCredentials -> IO ClientSession
+login cred = do
+  req <- mkLoginRequest cred
+  manager <- mkManager
+  resp' <- doRequest' manager req
+  case resp' of
+    Right LoginResponse {..} -> pure $ ClientSession (lBaseUrl cred) (MatrixToken lrAccessToken) manager
+    Left err ->
+      -- NOTE: There is nothing to recover after a failed login attempt
+      fail $ show err
+
+mkLogoutRequest :: ClientSession -> IO HTTP.Request
+mkLogoutRequest ClientSession {..} = mkLogoutRequest' baseUrl token
+
+-- | 'logout' allows you to destroy a session token.
+logout :: ClientSession -> MatrixIO ()
+logout session@ClientSession {..} = do
+  req <- mkLogoutRequest session
+  fmap (() <$) $ doRequest' @Value manager req
 
 -- | The session record, use 'createSession' to create it.
 data ClientSession = ClientSession
