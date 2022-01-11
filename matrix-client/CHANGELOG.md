@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.3.0
+
+- Adds Lenses and Prisms
+- Adds login/logout functiosn for generating and destroying Matrix Tokens
+- Add functionality to set and retrieve non-room account data
+- Generalize retry to arbitrary MatrixM
+
 ## 0.1.2.0
 
 - Add filtering client function
