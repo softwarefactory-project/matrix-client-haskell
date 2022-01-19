@@ -7,6 +7,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TupleSections #-}
 
 -- | This module contains the client-server API
 -- https://matrix.org/docs/spec/client_server/r0.6.1
@@ -42,17 +43,33 @@ module Network.Matrix.Client
     createRoom,
 
     -- * Room participation
+    ResolvedRoomAlias (..),
     TxnID (..),
     sendMessage,
     mkReply,
     module Network.Matrix.Events,
+    setRoomAlias,
+    setRoomVisibility,
+    resolveRoomAlias,
+    deleteRoomAlias,
+    getRoomAliases,
 
     -- * Room membership
     RoomID (..),
+    RoomAlias (..),
+    banUser,
+    checkRoomVisibility,
+    forgetRoom,
     getJoinedRooms,
+    getPublicRooms,
+    getPublicRooms',
+    inviteToRoom,
     joinRoom,
     joinRoomById,
     leaveRoomById,
+    kickUser,
+    knockOnRoom,
+    unbanUser,
 
     -- * Filter
     EventFormat (..),
@@ -100,13 +117,13 @@ where
 
 import Control.Monad (mzero, void)
 import Control.Monad.IO.Class (MonadIO(liftIO))
-import Data.Aeson (FromJSON (..), ToJSON (..), Value (Object, String), encode, genericParseJSON, genericToJSON, object, (.:), (.:?), (.=))
+import Data.Aeson (FromJSON (..), ToJSON (..), Value (Object, String), encode, genericParseJSON, genericToJSON, object, withObject, withText, (.:), (.:?), (.=))
 import qualified Data.Aeson as Aeson
 import Data.Aeson.Casing (aesonPrefix, snakeCase)
 import Data.Hashable (Hashable)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map, foldrWithKey)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, catMaybes)
 import Data.Proxy (Proxy(Proxy))
 import Data.Text (Text, pack)
 import qualified Data.Text as Text
@@ -117,6 +134,9 @@ import Network.HTTP.Types.URI (urlEncode)
 import Network.Matrix.Events
 import Network.Matrix.Internal
 import Network.Matrix.Room
+import Data.Coerce
+import Data.Bifunctor (bimap)
+import Data.List (intersperse)
 
 -- $setup
 -- >>> import Data.Aeson (decode)
@@ -191,9 +211,30 @@ instance FromJSON CreateRoomResponse where
   parseJSON (Object o) = CreateRoomResponse <$> o .:? "message" <*> o .:? "room_id"
   parseJSON _ = mzero
 
+newtype TxnID = TxnID Text deriving (Show, Eq)
+
+sendMessage :: ClientSession -> RoomID -> Event -> TxnID -> MatrixIO EventID
+sendMessage session (RoomID roomId) event (TxnID txnId) = do
+  request <- mkRequest session True path
+  doRequest
+    session
+    ( request
+        { HTTP.method = "PUT",
+          HTTP.requestBody = HTTP.RequestBodyLBS $ encode event
+        }
+    )
+  where
+    path = "/_matrix/client/r0/rooms/" <> roomId <> "/send/" <> eventId <> "/" <> txnId
+    eventId = eventType event
+
+-------------------------------------------------------------------------------
+-- Room API Calls https://spec.matrix.org/v1.1/client-server-api/#rooms-1
+
+-- | Create a new room with various configuration options.
+-- https://spec.matrix.org/v1.1/client-server-api/#post_matrixclientv3createroom
 createRoom :: ClientSession -> RoomCreateRequest -> MatrixIO RoomID
 createRoom session rcr = do
-  request <- mkRequest session True "/_matrix/client/r0/createRoom"
+  request <- mkRequest session True "/_matrix/client/v3/createRoom"
   toRoomID
     <$> doRequest
       session
@@ -211,28 +252,61 @@ createRoom session rcr = do
         (_, Just message) -> Left $ MatrixError "UNKNOWN" message Nothing
         _ -> Left $ MatrixError "UNKOWN" "" Nothing
 
-newtype TxnID = TxnID Text deriving (Show, Eq)
+newtype RoomAlias = RoomAlias Text deriving (Show, Eq, Ord, Hashable)
 
-sendMessage :: ClientSession -> RoomID -> Event -> TxnID -> MatrixIO EventID
-sendMessage session (RoomID roomId) event (TxnID txnId) = do
-  request <- mkRequest session True path
+data ResolvedRoomAlias = ResolvedRoomAlias { roomID :: RoomID, servers :: [Text] }
+
+instance FromJSON ResolvedRoomAlias where
+  parseJSON = withObject "ResolvedRoomAlias" $ \o -> do
+    roomID <- o .: "room_id"
+    servers <- o .: "servers"
+    pure $ ResolvedRoomAlias {..}
+
+-- | Requests that the server resolve a room alias to a room ID.
+-- https://spec.matrix.org/v1.1/client-server-api/#get_matrixclientv3directoryroomroomalias
+resolveRoomAlias :: ClientSession -> RoomAlias -> MatrixIO ResolvedRoomAlias
+resolveRoomAlias session (RoomAlias alias) = do
+  request <- mkRequest session True $ "/_matrix/client/v3/directory/room/" <> alias
   doRequest
-    session
-    ( request
-        { HTTP.method = "PUT",
-          HTTP.requestBody = HTTP.RequestBodyLBS $ encode event
-        }
-    )
-  where
-    path = "/_matrix/client/r0/rooms/" <> roomId <> "/send/" <> eventId <> "/" <> txnId
-    eventId = eventType event
+    session $ request { HTTP.method = "GET" }
 
-newtype RoomID = RoomID Text deriving (Show, Eq, Ord, Hashable)
+-- | Create a mapping of room alias to room ID.
+-- https://spec.matrix.org/v1.1/client-server-api/#put_matrixclientv3directoryroomroomalias
+setRoomAlias :: ClientSession -> RoomAlias -> RoomID -> MatrixIO ()
+setRoomAlias session (RoomAlias alias) (RoomID roomId)= do
+  request <- mkRequest session True $ "/_matrix/client/v3/directory/room/" <> alias
+  doRequest
+    session $
+      request { HTTP.method = "PUT"
+              , HTTP.requestBody = HTTP.RequestBodyLBS $ encode $ object [("room_id" .= roomId)]
+              }
+-- | Delete a mapping of room alias to room ID.
+-- https://spec.matrix.org/v1.1/client-server-api/#delete_matrixclientv3directoryroomroomalias
+deleteRoomAlias :: ClientSession -> RoomAlias -> MatrixIO ()
+deleteRoomAlias session (RoomAlias alias) = do
+  request <- mkRequest session True $ "/_matrix/client/v3/directory/room/" <> alias
+  doRequest
+    session $
+      request { HTTP.method = "DELETE" }
 
-instance FromJSON RoomID where
-  parseJSON (Object v) = RoomID <$> v .: "room_id"
-  parseJSON _ = mzero
+data ResolvedAliases = ResolvedAliases [RoomAlias]
 
+instance FromJSON ResolvedAliases where
+  parseJSON = withObject "ResolvedAliases" $ \o -> do
+    aliases <- o .: "aliases"
+    pure $ ResolvedAliases (RoomAlias <$> aliases)
+    
+-- | Get a list of aliases maintained by the local server for the given room.
+-- https://spec.matrix.org/v1.1/client-server-api/#get_matrixclientv3roomsroomidaliases
+getRoomAliases :: ClientSession -> RoomID -> MatrixIO [RoomAlias]
+getRoomAliases session (RoomID rid) = do
+  request <- mkRequest session True $ "/_matrix/client/v3/rooms/" <> rid <> "/aliases"
+  resp <- doRequest
+    session $
+      request { HTTP.method = "GET" }
+  case resp of
+    Left err -> pure $ Left err
+    Right (ResolvedAliases aliases) -> pure $ Right aliases
 -- | A newtype wrapper to decoded nested list
 --
 -- >>> decode "{\"joined_rooms\": [\"!foo:example.com\"]}" :: Maybe JoinedRooms
@@ -245,13 +319,34 @@ instance FromJSON JoinedRooms where
     pure . JoinedRooms $ RoomID <$> rooms
   parseJSON _ = mzero
 
+-- | Returns a list of the user’s current rooms.
+-- https://spec.matrix.org/v1.1/client-server-api/#get_matrixclientv3joined_rooms
 getJoinedRooms :: ClientSession -> MatrixIO [RoomID]
 getJoinedRooms session = do
   request <- mkRequest session True "/_matrix/client/r0/joined_rooms"
   response <- doRequest session request
   pure $ unRooms <$> response
 
+newtype RoomID = RoomID Text deriving (Show, Eq, Ord, Hashable)
+
+instance FromJSON RoomID where
+  parseJSON (Object v) = RoomID <$> v .: "room_id"
+  parseJSON _ = mzero
+
+-- | Invites a user to participate in a particular room. They do not
+-- start participating in the room until they actually join the room.
+-- https://spec.matrix.org/v1.1/client-server-api/#post_matrixclientv3roomsroomidinvite
+inviteToRoom :: ClientSession -> RoomID -> UserID -> Maybe Text -> MatrixIO ()
+inviteToRoom session (RoomID rid) (UserID uid) reason = do
+  request <- mkRequest session True $ "/_matrix/client/v3/rooms/" <> rid <> "/invite"
+  let body = object $ [("user_id", toJSON uid)] <> catMaybes [fmap (("reason",) . toJSON) reason]
+  doRequest session $
+      request { HTTP.method = "POST"
+              , HTTP.requestBody = HTTP.RequestBodyLBS $ encode body
+              }
+
 -- | Note that this API takes either a room ID or alias, unlike 'joinRoomById'
+-- https://spec.matrix.org/v1.1/client-server-api/#post_matrixclientv3joinroomidoralias
 joinRoom :: ClientSession -> Text -> MatrixIO RoomID
 joinRoom session roomName = do
   request <- mkRequest session True $ "/_matrix/client/r0/join/" <> roomNameUrl
@@ -259,11 +354,45 @@ joinRoom session roomName = do
   where
     roomNameUrl = decodeUtf8 . urlEncode True . encodeUtf8 $ roomName
 
+-- | Starts a user participating in a particular room, if that user is
+-- allowed to participate in that room.
+-- https://spec.matrix.org/v1.1/client-server-api/#post_matrixclientv3roomsroomidjoin
 joinRoomById :: ClientSession -> RoomID -> MatrixIO RoomID
 joinRoomById session (RoomID roomId) = do
   request <- mkRequest session True $ "/_matrix/client/r0/rooms/" <> roomId <> "/join"
   doRequest session (request {HTTP.method = "POST"})
 
+indistinct :: Either x x -> x
+indistinct = id `either` id
+
+-- | This API “knocks” on the room to ask for permission to join, if
+-- the user is allowed to knock on the room.
+-- https://spec.matrix.org/v1.1/client-server-api/#post_matrixclientv3knockroomidoralias
+knockOnRoom :: ClientSession -> Either RoomID RoomAlias -> [Text] -> Maybe Text -> MatrixIO RoomID
+knockOnRoom session room servers reason = do
+  request <- mkRequest session True $ " /_matrix/client/v3/knock/" <> indistinct (bimap coerce coerce room)
+  let body = object $ catMaybes [fmap (("reason",) . toJSON) reason]
+  doRequest session $
+      request { HTTP.method = "POST"
+              , HTTP.requestBody = HTTP.RequestBodyLBS $ encode body
+              , HTTP.queryString = encodeUtf8 $ "?server_name=" <> mconcat (intersperse "," servers)
+              }
+
+-- | Stops remembering a particular room.
+-- https://spec.matrix.org/v1.1/client-server-api/#post_matrixclientv3roomsroomidforget
+forgetRoom :: ClientSession -> RoomID -> MatrixIO ()
+forgetRoom session (RoomID roomId) = do
+  request <- mkRequest session True $ "/_matrix/client/v3/rooms/" <> roomId <> "/forget"
+  fmap ensureEmptyObject <$> doRequest session (request {HTTP.method = "POST"})
+  where
+    ensureEmptyObject :: Value -> ()
+    ensureEmptyObject value = case value of
+      Object xs | xs == mempty -> ()
+      _anyOther -> error $ "Unknown forget response: " <> show value
+     
+
+-- | Stop participating in a particular room.
+-- https://spec.matrix.org/v1.1/client-server-api/#post_matrixclientv3roomsroomidleave
 leaveRoomById :: ClientSession -> RoomID -> MatrixIO ()
 leaveRoomById session (RoomID roomId) = do
   request <- mkRequest session True $ "/_matrix/client/r0/rooms/" <> roomId <> "/leave"
@@ -274,6 +403,170 @@ leaveRoomById session (RoomID roomId) = do
       Object xs | xs == mempty -> ()
       _anyOther -> error $ "Unknown leave response: " <> show value
 
+-- | Kick a user from the room.
+-- https://spec.matrix.org/v1.1/client-server-api/#post_matrixclientv3roomsroomidkick
+kickUser :: ClientSession -> RoomID -> UserID -> Maybe Text -> MatrixIO ()
+kickUser session (RoomID roomId) (UserID uid) reason = do
+  request <- mkRequest session True $ "/_matrix/client/v3/rooms/" <> roomId <> "/kick"
+  let body = object $ [("user_id", toJSON uid)] <> catMaybes [fmap (("reason",) . toJSON) reason]
+  fmap (fmap ensureEmptyObject) $ doRequest session $
+      request { HTTP.method = "POST"
+              , HTTP.requestBody = HTTP.RequestBodyLBS $ encode body
+              }
+  where
+    ensureEmptyObject :: Value -> ()
+    ensureEmptyObject value = case value of
+      Object xs | xs == mempty -> ()
+      _anyOther -> error $ "Unknown leave response: " <> show value
+
+-- | Ban a user in the room. If the user is currently in the room, also kick them.
+-- https://spec.matrix.org/v1.1/client-server-api/#post_matrixclientv3roomsroomidban
+banUser :: ClientSession -> RoomID -> UserID -> Maybe Text -> MatrixIO ()
+banUser session (RoomID roomId) (UserID uid) reason = do
+  request <- mkRequest session True $ "/_matrix/client/v3/rooms/" <> roomId <> "/ban"
+  let body = object $ [("user_id", toJSON uid)] <> catMaybes [fmap (("reason",) . toJSON) reason]
+  fmap (fmap ensureEmptyObject) $ doRequest session $
+      request { HTTP.method = "POST"
+              , HTTP.requestBody = HTTP.RequestBodyLBS $ encode body
+              }
+  where
+    ensureEmptyObject :: Value -> ()
+    ensureEmptyObject value = case value of
+      Object xs | xs == mempty -> ()
+      _anyOther -> error $ "Unknown leave response: " <> show value
+
+-- | Unban a user from the room. This allows them to be invited to the
+-- room, and join if they would otherwise be allowed to join according
+-- to its join rules.
+-- https://spec.matrix.org/v1.1/client-server-api/#post_matrixclientv3roomsroomidunban
+unbanUser :: ClientSession -> RoomID -> UserID -> Maybe Text -> MatrixIO ()
+unbanUser session (RoomID roomId) (UserID uid) reason = do
+  request <- mkRequest session True $ "/_matrix/client/v3/rooms/" <> roomId <> "/unban"
+  let body = object $ [("user_id", toJSON uid)] <> catMaybes [fmap (("reason",) . toJSON) reason]
+  fmap (fmap ensureEmptyObject) $ doRequest session $
+      request { HTTP.method = "POST"
+              , HTTP.requestBody = HTTP.RequestBodyLBS $ encode body
+              }
+  where
+    ensureEmptyObject :: Value -> ()
+    ensureEmptyObject value = case value of
+      Object xs | xs == mempty -> ()
+      _anyOther -> error $ "Unknown leave response: " <> show value
+
+data Visibility = Public | Private
+  deriving Generic
+
+instance ToJSON Visibility where
+  toJSON = \case
+    Public -> String "public"
+    Private -> String "private"
+
+instance FromJSON Visibility where
+  parseJSON = withText "Visibility" $ \case
+    "public" -> pure Public
+    "private" -> pure Private
+    _ -> mzero
+
+-- | Gets the visibility of a given room on the server’s public room directory.
+-- https://spec.matrix.org/v1.1/client-server-api/#get_matrixclientv3directorylistroomroomid
+checkRoomVisibility :: ClientSession -> RoomID -> MatrixIO Visibility
+checkRoomVisibility session (RoomID rid) = do
+  request <- mkRequest session True $ "/_matrix/client/v3/directory/list/room/" <> rid
+  doRequest session request
+    
+-- | Sets the visibility of a given room in the server’s public room directory.
+-- https://spec.matrix.org/v1.1/client-server-api/#put_matrixclientv3directorylistroomroomid
+setRoomVisibility :: ClientSession -> RoomID -> Visibility -> MatrixIO ()
+setRoomVisibility session (RoomID rid) visibility = do
+  request <- mkRequest session True $ "/_matrix/client/v3/directory/list/room/" <> rid
+  let body = object $ [("visibility", toJSON visibility)]
+  fmap (fmap ensureEmptyObject) $ doRequest session $
+      request { HTTP.method = "PUT"
+              , HTTP.requestBody = HTTP.RequestBodyLBS $ encode body
+              }
+  where
+    ensureEmptyObject :: Value -> ()
+    ensureEmptyObject value = case value of
+      Object xs | xs == mempty -> ()
+      _anyOther -> error $ "Unknown setRoomVisibility response: " <> show value
+
+-- | A pagination token from a previous request, allowing clients to
+-- get the next (or previous) batch of rooms. The direction of
+-- pagination is specified solely by which token is supplied, rather
+-- than via an explicit flag.
+newtype PaginationChunk = PaginationChunk { getChunk :: Text }
+  deriving newtype (ToJSON, FromJSON)
+
+data Room = Room
+  { aliases :: [Text]
+  , avatarUrl :: Text
+  , guestCanJoin :: Bool
+  , joinRule :: Text
+  , name :: Text
+  , numJoinedMembers :: Int
+  , roomId :: RoomID
+  , topic :: Text
+  , worldReadable :: Bool
+  }
+
+instance FromJSON Room where
+  parseJSON = withObject "Room" $ \o -> do
+    aliases <- o .: "aliases" 
+    avatarUrl <- o .: "avatar_url"
+    guestCanJoin <- o .: "guest_can_join"
+    joinRule <- o .: "join_rule"
+    name <- o .: "name"
+    numJoinedMembers <- o .: "num_joined_members"
+    roomId <- o .: "room_id"
+    topic <- o .: "topic"
+    worldReadable <- o .: "world_readable"
+    pure $ Room {..}
+
+data PublicRooms = PublicRooms
+  { rooms :: [Room]
+  , nextBatch :: PaginationChunk
+  , prevBatch :: PaginationChunk
+  , totalRoomCountEstimate :: Int
+  }
+
+instance FromJSON PublicRooms where
+  parseJSON = withObject "PublicRooms" $ \o -> do
+    rooms <- o .: "rooms"
+    nextBatch <- o .: "next_batch"
+    prevBatch <- o .: "prev_batch"
+    totalRoomCountEstimate <- o .: "total_room_count_estimate"
+    pure $ PublicRooms {..}
+
+-- | Lists the public rooms on the server.
+-- https://spec.matrix.org/v1.1/client-server-api/#get_matrixclientv3publicrooms
+getPublicRooms :: ClientSession -> Maybe Int -> Maybe PaginationChunk -> MatrixIO PublicRooms
+getPublicRooms session limit chunk = do
+  request <- mkRequest session True "/_matrix/client/v3/publicRooms"
+  let since = fmap (mappend "since=" . getChunk) chunk
+      limit' = fmap (mappend "limit=" . pack . show) limit
+      queryString = encodeUtf8 $ mconcat $ catMaybes [since, limit']
+  doRequest session $
+    request { HTTP.queryString = queryString }
+
+newtype ThirdPartyInstanceId = ThirdPartyInstanceId Text
+  deriving (FromJSON, ToJSON)
+
+-- | Lists the public rooms on the server, with optional filter.
+-- https://spec.matrix.org/v1.1/client-server-api/#post_matrixclientv3publicrooms
+getPublicRooms' :: ClientSession -> Maybe Int -> Maybe PaginationChunk -> Maybe Text -> Maybe Bool -> Maybe ThirdPartyInstanceId-> MatrixIO PublicRooms
+getPublicRooms' session limit chunk searchTerm includeAllNetworks thirdPartyId = do
+  request <- mkRequest session True "/_matrix/client/v3/publicRooms"
+  let filter' = object $ catMaybes [ fmap (("generic_search_term",) . toJSON) searchTerm]
+      since = fmap (("since",) . toJSON) chunk
+      limit' = fmap (("limit",) . toJSON) limit
+      includeAllNetworks' = fmap (("include_all_networks",) . toJSON) includeAllNetworks
+      thirdPartyId' = fmap (("third_party_instance_id",) . toJSON) thirdPartyId
+      body = object $ [("filter", filter')] <> catMaybes [ since, limit', includeAllNetworks', thirdPartyId' ]
+  doRequest session $
+    request { HTTP.method = "POST"
+            , HTTP.requestBody = HTTP.RequestBodyLBS $ encode body
+            }
+  
 -------------------------------------------------------------------------------
 -- https://matrix.org/docs/spec/client_server/latest#post-matrix-client-r0-user-userid-filter
 newtype FilterID = FilterID Text deriving (Show, Eq, Hashable)
