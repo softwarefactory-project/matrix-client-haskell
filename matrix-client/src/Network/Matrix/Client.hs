@@ -8,6 +8,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TupleSections #-}
+{-# OPTIONS_GHC -Wno-deferred-type-errors #-}
 
 -- | This module contains the client-server API
 -- https://matrix.org/docs/spec/client_server/r0.6.1
@@ -36,6 +37,18 @@ module Network.Matrix.Client
     -- * User data
     UserID (..),
     getTokenOwner,
+
+    -- * Room Events
+    EventType (..),
+    PaginatedRoomMessages (..),
+    StateKey (..),
+    StateEvent (..),
+    StateContent (..),
+    getRoomEvent,
+    getRoomMembers,
+    getRoomState,
+    getRoomStateEvent,
+    getRoomMessages,
 
     -- * Room management
     RoomCreatePreset (..),
@@ -137,6 +150,10 @@ import Network.Matrix.Room
 import Data.Coerce
 import Data.Bifunctor (bimap)
 import Data.List (intersperse)
+import Data.Aeson.Types (Parser)
+import Control.Applicative
+import qualified Data.ByteString as B
+import qualified Data.ByteString.Lazy as BL
 
 -- $setup
 -- >>> import Data.Aeson (decode)
@@ -227,6 +244,229 @@ sendMessage session (RoomID roomId) event (TxnID txnId) = do
     path = "/_matrix/client/r0/rooms/" <> roomId <> "/send/" <> eventId <> "/" <> txnId
     eventId = eventType event
 
+-------------------------------------------------------------------------------
+-- Room Event API Calls https://spec.matrix.org/v1.1/client-server-api/#getting-events-for-a-room
+
+getRoomEvent :: ClientSession -> RoomID -> EventID -> MatrixIO RoomEvent
+getRoomEvent session (RoomID rid) (EventID eid) = do
+  request <- mkRequest session True $ "/_matrix/client/v3/rooms/" <> rid <> "/event/" <> eid
+  doRequest session request
+
+data User = User { userDisplayName :: Text, userAvatarUrl :: Maybe Text }
+  deriving Show
+
+instance FromJSON User where
+  parseJSON = withObject "User" $ \o -> do
+    userDisplayName <- o .: "display_name"
+    userAvatarUrl <- o .:? "avatar_url"
+    pure $ User {..}
+
+-- | Unexported newtype to grant us a 'FromJSON' instance.
+newtype JoinedUsers = JoinedUsers (Map UserID User)
+
+instance FromJSON JoinedUsers where
+  parseJSON = withObject "JoinedUsers" $ \o -> do
+    users <- o .: "joined"
+    pure $ JoinedUsers users
+
+-- | This API returns a map of MXIDs to member info objects for
+-- members of the room. The current user must be in the room for it to
+-- work.
+-- https://spec.matrix.org/v1.1/client-server-api/#get_matrixclientv3roomsroomidjoined_members
+getRoomMembers :: ClientSession -> RoomID -> MatrixIO (Map UserID User)
+getRoomMembers session (RoomID rid) = do
+  request <- mkRequest session True $ "/_matrix/client/v3/rooms/" <> rid <> "/joined_members"
+  fmap (fmap coerce) $ doRequest @JoinedUsers session request
+    
+newtype StateKey = StateKey Text
+  deriving stock Show
+  deriving newtype FromJSON
+
+newtype EventType = EventType Text
+  deriving stock Show
+  deriving newtype FromJSON
+
+data MRCreate = MRCreate { mrcCreator :: UserID, mrcRoomVersion :: Integer }
+  deriving Show
+
+instance FromJSON MRCreate where
+  parseJSON = withObject "RoomCreate" $ \o -> do
+    mrcCreator <- o .: "creator"
+    mrcRoomVersion <- o .: "room_version"
+    pure $ MRCreate {..}
+
+newtype MRName = MRName { mrnName :: Text }
+  deriving Show
+
+instance FromJSON MRName where
+  parseJSON = withObject "RoomName" $ \o ->
+    MRName <$> (o .: "name")
+
+newtype MRCanonicalAlias = MRCanonicalAlias { mrcAlias :: Text }
+  deriving Show
+
+instance FromJSON MRCanonicalAlias where
+  parseJSON = withObject "RoomCanonicalAlias" $ \o ->
+    MRCanonicalAlias <$> (o .: "alias")
+
+newtype MRGuestAccess = MRGuestAccess { mrGuestAccess :: Text }
+  deriving Show
+
+instance FromJSON MRGuestAccess where
+  parseJSON = withObject "GuestAccess" $ \o ->
+    MRGuestAccess <$> (o .: "guest_access")
+
+newtype MRHistoryVisibility = MRHistoryVisibility { mrHistoryVisibility :: Text }
+  deriving Show
+
+instance FromJSON MRHistoryVisibility where
+  parseJSON = withObject "HistoryVisibility" $ \o ->
+    MRHistoryVisibility <$> (o .: "history_visibility")
+
+newtype MRTopic = MRTopic { mrTopic :: Text }
+  deriving Show
+
+instance FromJSON MRTopic where
+  parseJSON = withObject "RoomTopic" $ \o ->
+    MRTopic <$> (o .: "topic")
+    
+data StateContent =
+    StRoomCreate MRCreate
+ -- | StRoomMember MRMember
+ -- | StRoomPowerLevels MRPowerLevels
+ -- | StRoomJoinRules MRJoinRules
+  | StRoomCanonicalAlias MRCanonicalAlias
+  | StRoomGuestAccess MRGuestAccess
+  | StRoomHistoryVisibility MRHistoryVisibility
+  | StRoomName MRName
+  | StRoomTopic MRTopic
+  | StOther Value
+ --- | StSpaceParent MRSpaceParent
+  deriving Show
+
+pStRoomCreate :: Value -> Parser StateContent
+pStRoomCreate v = StRoomCreate <$> parseJSON v
+
+pStRoomCanonicAlias :: Value -> Parser StateContent
+pStRoomCanonicAlias v = StRoomCanonicalAlias <$> parseJSON v
+
+pStRoomGuestAccess :: Value -> Parser StateContent
+pStRoomGuestAccess v = StRoomGuestAccess <$> parseJSON v
+
+pStRoomHistoryVisibility :: Value -> Parser StateContent
+pStRoomHistoryVisibility v = StRoomHistoryVisibility <$> parseJSON v
+
+pStRoomName :: Value -> Parser StateContent
+pStRoomName v = StRoomName <$> parseJSON v
+
+pStRoomTopic :: Value -> Parser StateContent
+pStRoomTopic v = StRoomTopic <$> parseJSON v
+
+pStRoomOther :: Value -> Parser StateContent
+pStRoomOther v = StOther <$> parseJSON v
+    
+instance FromJSON StateContent where
+  parseJSON v = 
+        pStRoomCreate v 
+    <|> pStRoomCanonicAlias v
+    <|> pStRoomGuestAccess v
+    <|> pStRoomHistoryVisibility v
+    <|> pStRoomName v
+    <|> pStRoomTopic v
+    <|> pStRoomOther v
+
+-- TODO(SOLOMON): Should This constructor be in 'Event'?
+data StateEvent = StateEvent
+  { seContent :: StateContent
+  , seEventId :: EventID
+  , seOriginServerTimestamp :: Integer
+  , sePreviousContent :: Maybe Value
+  , seRoomId :: RoomID
+  , seSender :: UserID
+  , seStateKey :: StateKey
+  , seEventType :: EventType
+  , seUnsigned :: Maybe Value
+  } deriving Show
+
+instance FromJSON StateEvent where
+  parseJSON = withObject "StateEvent" $ \o -> do
+    seContent <- o .: "content"
+    seEventId <- fmap EventID $ o .: "event_id"
+    seOriginServerTimestamp <- o .: "origin_server_ts"
+    sePreviousContent <- o .:? "previous_content"
+    seRoomId <- fmap RoomID $ o .: "room_id"
+    seSender <- fmap UserID $ o .: "sender"
+    seStateKey <- o .: "state_key"
+    seEventType <- o .: "type"
+    seUnsigned <- o .:? "unsigned"
+    pure $ StateEvent {..}
+      
+-- | Get the state events for the current state of a room.
+-- https://spec.matrix.org/v1.1/client-server-api/#get_matrixclientv3roomsroomidstate
+getRoomState :: ClientSession -> RoomID -> MatrixIO [StateEvent]
+getRoomState session (RoomID rid) = do
+  request <- mkRequest session True $ "/_matrix/client/v3/rooms/" <> rid <> "/state"
+  doRequest session request
+
+-- | Looks up the contents of a state event in a room. If the user is
+-- joined to the room then the state is taken from the current state
+-- of the room. If the user has left the room then the state is taken
+-- from the state of the room when they left.
+-- https://spec.matrix.org/v1.1/client-server-api/#get_matrixclientv3roomsroomidstateeventtypestatekey
+getRoomStateEvent :: ClientSession -> RoomID -> EventType -> StateKey -> MatrixIO StateEvent
+getRoomStateEvent session (RoomID rid) (EventType et) (StateKey key) = do
+  request <- mkRequest session True $ "/_matrix/client/v3/rooms/" <> rid <> "/state" <> et <> "/" <> key
+  doRequest session request
+
+data Dir = F | B
+
+renderDir :: Dir -> B.ByteString
+renderDir F = "f"
+renderDir B = "b"
+
+data PaginatedRoomMessages = PaginatedRoomMessages
+  { chunk :: [RoomEvent]
+  , end :: Maybe Text
+  -- ^ A token corresponding to the end of chunk. 
+  , start :: Text
+  -- ^ A token corresponding to the start of chunk.
+  , state :: [StateEvent]
+  -- ^ A list of state events relevant to showing the chunk.
+  } deriving Show
+
+instance FromJSON PaginatedRoomMessages where
+  parseJSON = withObject "PaginatedRoomMessages" $ \o -> do
+    chunk <- o .: "chunk"
+    end <- o .:? "end"
+    start <- o .: "start"
+    state <- fmap (fromMaybe []) $ o .:? "state"
+    pure $ PaginatedRoomMessages {..}
+
+getRoomMessages ::
+  ClientSession ->
+  -- | The room to get events from.
+  RoomID ->
+  -- | The direction to return events from.
+  Dir ->
+  -- | A 'RoomEventFilter' to filter returned events with.
+  Maybe RoomEventFilter -> 
+  -- | The Since value to start returning events from. 
+  Text ->
+  -- | The maximum number of events to return. Default: 10.
+  Maybe Int ->
+  -- | The token to stop returning events at. 
+  Maybe Int ->
+  MatrixIO PaginatedRoomMessages
+getRoomMessages session (RoomID rid) dir roomFilter fromToken limit toToken = do
+  request <- mkRequest session True $ "/_matrix/client/v3/rooms/" <> rid <> "/messages"
+  let dir' = "dir=" <> renderDir dir
+      filter' = BL.toStrict . mappend "filter=" . encode <$> roomFilter
+      from' = encodeUtf8 $ "from=" <> fromToken
+      limit' = BL.toStrict . mappend "limit=" . encode <$> limit
+      to' = BL.toStrict . mappend "from=" . encode <$> toToken
+      queryString = mappend "?" $ mconcat $ intersperse "&" $ [dir', from' ] <> catMaybes [to', limit', filter']
+  doRequest session $ request { HTTP.queryString = queryString }
+      
 -------------------------------------------------------------------------------
 -- Room API Calls https://spec.matrix.org/v1.1/client-server-api/#rooms-1
 
@@ -568,7 +808,7 @@ getPublicRooms session limit chunk = do
   request <- mkRequest session True "/_matrix/client/v3/publicRooms"
   let since = fmap (mappend "since=" . getChunk) chunk
       limit' = fmap (mappend "limit=" . pack . show) limit
-      queryString = encodeUtf8 $ mconcat $ catMaybes [since, limit']
+      queryString = encodeUtf8 $ mconcat $ intersperse "&" $ catMaybes [since, limit']
   doRequest session $
     request { HTTP.queryString = queryString }
 
