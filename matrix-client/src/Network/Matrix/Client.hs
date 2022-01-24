@@ -495,46 +495,49 @@ setRoomVisibility session (RoomID rid) visibility = do
 -- pagination is specified solely by which token is supplied, rather
 -- than via an explicit flag.
 newtype PaginationChunk = PaginationChunk { getChunk :: Text }
+  deriving stock (Show)
   deriving newtype (ToJSON, FromJSON)
 
 data Room = Room
-  { aliases :: [Text]
-  , avatarUrl :: Text
+  { aliases :: Maybe [Text]
+  , avatarUrl :: Maybe Text
+  , canonicalAlias :: Maybe Text
   , guestCanJoin :: Bool
-  , joinRule :: Text
-  , name :: Text
+  , joinRule :: Maybe Text
+  , name :: Maybe Text
   , numJoinedMembers :: Int
   , roomId :: RoomID
-  , topic :: Text
+  , topic :: Maybe Text
   , worldReadable :: Bool
-  }
+  } deriving Show
 
 instance FromJSON Room where
   parseJSON = withObject "Room" $ \o -> do
-    aliases <- o .: "aliases" 
-    avatarUrl <- o .: "avatar_url"
+    aliases <- o .:? "aliases" 
+    avatarUrl <- o .:? "avatar_url"
+    canonicalAlias <- o .:? "canonical_alias"
     guestCanJoin <- o .: "guest_can_join"
-    joinRule <- o .: "join_rule"
-    name <- o .: "name"
+    joinRule <- o .:? "join_rule"
+    name <- o .:? "name"
     numJoinedMembers <- o .: "num_joined_members"
-    roomId <- o .: "room_id"
-    topic <- o .: "topic"
+    roomId <- fmap RoomID $ o .: "room_id"
+    topic <- o .:? "topic"
     worldReadable <- o .: "world_readable"
     pure $ Room {..}
 
 data PublicRooms = PublicRooms
-  { rooms :: [Room]
-  , nextBatch :: PaginationChunk
-  , prevBatch :: PaginationChunk
-  , totalRoomCountEstimate :: Int
-  }
+  { chunk :: [Room]
+  , nextBatch :: Maybe PaginationChunk
+  , prevBatch :: Maybe PaginationChunk
+  , totalRoomCountEstimate :: Maybe Int
+  } deriving Show
 
 instance FromJSON PublicRooms where
   parseJSON = withObject "PublicRooms" $ \o -> do
-    rooms <- o .: "rooms"
-    nextBatch <- o .: "next_batch"
-    prevBatch <- o .: "prev_batch"
-    totalRoomCountEstimate <- o .: "total_room_count_estimate"
+    chunk <- o .: "chunk"
+    nextBatch <- o .:? "next_batch"
+    prevBatch <- o .:? "prev_batch"
+    totalRoomCountEstimate <- o .:? "total_room_count_estimate"
     pure $ PublicRooms {..}
 
 -- | Lists the public rooms on the server.
