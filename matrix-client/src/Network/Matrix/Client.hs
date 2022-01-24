@@ -39,6 +39,12 @@ module Network.Matrix.Client
 
     -- * Room Events
     EventType (..),
+    MRCreate (..),
+    MRCanonicalAlias (..),
+    MRGuestAccess (..),
+    MRHistoryVisibility (..),
+    MRName (..),
+    MRTopic (..),
     PaginatedRoomMessages (..),
     StateKey (..),
     StateEvent (..),
