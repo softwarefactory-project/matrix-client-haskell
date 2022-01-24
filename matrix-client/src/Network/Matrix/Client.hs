@@ -146,6 +146,7 @@ import Network.HTTP.Types.URI (urlEncode)
 import Network.Matrix.Events
 import Network.Matrix.Internal
 import Network.Matrix.Room
+import qualified Network.URI as URI
 import Data.Coerce
 import Data.Bifunctor (bimap)
 import Data.List (intersperse)
@@ -509,7 +510,7 @@ data RoomAliasMetadata = RoomAliasMetadata
 
 instance FromJSON RoomAliasMetadata where
   parseJSON = withObject "ResolvedRoomAlias" $ \o -> do
-    ramRoomID <- o .: "room_id"
+    ramRoomID <- fmap RoomID $ o .: "room_id"
     ramServers <- o .: "servers"
     pure $ RoomAliasMetadata {..}
 
@@ -517,7 +518,7 @@ instance FromJSON RoomAliasMetadata where
 -- https://spec.matrix.org/v1.1/client-server-api/#get_matrixclientv3directoryroomroomalias
 resolveRoomAlias :: ClientSession -> RoomAlias -> MatrixIO ResolvedRoomAlias
 resolveRoomAlias session r@(RoomAlias alias) = do
-  request <- mkRequest session True $ "/_matrix/client/v3/directory/room/" <> alias
+  request <- mkRequest session True $ "/_matrix/client/v3/directory/room/" <> escapeUriComponent alias
   resp <- doRequest session $ request { HTTP.method = "GET" }
   case resp of
     Left err -> pure $ Left err
@@ -527,7 +528,7 @@ resolveRoomAlias session r@(RoomAlias alias) = do
 -- https://spec.matrix.org/v1.1/client-server-api/#put_matrixclientv3directoryroomroomalias
 setRoomAlias :: ClientSession -> RoomAlias -> RoomID -> MatrixIO ()
 setRoomAlias session (RoomAlias alias) (RoomID roomId)= do
-  request <- mkRequest session True $ "/_matrix/client/v3/directory/room/" <> alias
+  request <- mkRequest session True $ "/_matrix/client/v3/directory/room/" <> escapeUriComponent alias
   doRequest
     session $
       request { HTTP.method = "PUT"
@@ -537,7 +538,7 @@ setRoomAlias session (RoomAlias alias) (RoomID roomId)= do
 -- https://spec.matrix.org/v1.1/client-server-api/#delete_matrixclientv3directoryroomroomalias
 deleteRoomAlias :: ClientSession -> RoomAlias -> MatrixIO ()
 deleteRoomAlias session (RoomAlias alias) = do
-  request <- mkRequest session True $ "/_matrix/client/v3/directory/room/" <> alias
+  request <- mkRequest session True $ "/_matrix/client/v3/directory/room/" <> escapeUriComponent alias
   doRequest
     session $
       request { HTTP.method = "DELETE" }
@@ -1311,3 +1312,6 @@ indistinct = id `either` id
 
 tshow :: Show a => a -> T.Text
 tshow = T.pack . show
+
+escapeUriComponent :: T.Text -> T.Text
+escapeUriComponent = T.pack . URI.escapeURIString URI.isUnreserved . T.unpack
