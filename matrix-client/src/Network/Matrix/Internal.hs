@@ -14,7 +14,7 @@ import Control.Monad.Catch (Handler (Handler), MonadMask)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Retry (RetryStatus (..))
 import qualified Control.Retry as Retry
-import Data.Aeson (FromJSON (..), Value (Object), encode, eitherDecode, object, withObject, (.:), (.:?), (.=))
+import Data.Aeson (FromJSON (..), FromJSONKey (..), Value (Object), encode, eitherDecode, object, withObject, (.:), (.:?), (.=))
 import Data.ByteString.Lazy (ByteString, toStrict)
 import Data.Hashable (Hashable)
 import Data.Maybe (catMaybes, fromMaybe)
@@ -127,7 +127,8 @@ decodeResp resp = case eitherDecode resp of
     Right me -> Right $ Left me
     Left _ -> Left e
 
-newtype UserID = UserID Text deriving (Show, Eq, Ord, Hashable)
+newtype UserID = UserID Text
+  deriving (Show, Eq, Ord, Hashable, FromJSONKey)
 
 instance FromJSON UserID where
   parseJSON (Object v) = UserID <$> v .: "user_id"
