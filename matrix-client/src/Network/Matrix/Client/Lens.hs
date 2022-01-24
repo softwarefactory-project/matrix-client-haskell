@@ -18,6 +18,10 @@ module Network.Matrix.Client.Lens
   , _efNotTypes
   , _efSenders
   , _efTypes
+    -- ResolvedRoomAlias
+  , _roomAlias
+  , _roomID
+  , _servers
     -- RoomEventFilter
   , _refLimit
   , _refNotSenders
@@ -184,6 +188,24 @@ _efTypes = lens getter setter
   where
     getter = efTypes
     setter ef t = ef { efTypes = t }
+
+_roomAlias :: Lens' ResolvedRoomAlias RoomAlias
+_roomAlias = lens getter setter
+  where
+    getter = roomAlias
+    setter rra ra = rra { roomAlias = ra }
+
+_roomID :: Lens' ResolvedRoomAlias RoomID
+_roomID = lens getter setter
+  where
+    getter = roomID
+    setter rra rid = rra { roomID = rid }
+
+_servers :: Lens' ResolvedRoomAlias [T.Text]
+_servers = lens getter setter
+  where
+    getter = servers
+    setter rra s = rra { servers = s }
 
 _refLimit :: Lens' RoomEventFilter (Maybe Int)
 _refLimit = lens getter setter
