@@ -8,7 +8,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TupleSections #-}
-{-# OPTIONS_GHC -Wno-deferred-type-errors #-}
 
 -- | This module contains the client-server API
 -- https://matrix.org/docs/spec/client_server/r0.6.1
@@ -49,6 +48,8 @@ module Network.Matrix.Client
     getRoomState,
     getRoomStateEvent,
     getRoomMessages,
+    redact,
+    sendRoomStateEvent,
 
     -- * Room management
     RoomCreatePreset (..),
@@ -227,22 +228,6 @@ data CreateRoomResponse = CreateRoomResponse
 instance FromJSON CreateRoomResponse where
   parseJSON (Object o) = CreateRoomResponse <$> o .:? "message" <*> o .:? "room_id"
   parseJSON _ = mzero
-
-newtype TxnID = TxnID T.Text deriving (Show, Eq)
-
-sendMessage :: ClientSession -> RoomID -> Event -> TxnID -> MatrixIO EventID
-sendMessage session (RoomID roomId) event (TxnID txnId) = do
-  request <- mkRequest session True path
-  doRequest
-    session
-    ( request
-        { HTTP.method = "PUT",
-          HTTP.requestBody = HTTP.RequestBodyLBS $ encode event
-        }
-    )
-  where
-    path = "/_matrix/client/r0/rooms/" <> roomId <> "/send/" <> eventId <> "/" <> txnId
-    eventId = eventType event
 
 -------------------------------------------------------------------------------
 -- Room Event API Calls https://spec.matrix.org/v1.1/client-server-api/#getting-events-for-a-room
@@ -466,7 +451,45 @@ getRoomMessages session (RoomID rid) dir roomFilter fromToken limit toToken = do
       to' = BL.toStrict . mappend "from=" . encode <$> toToken
       queryString = mappend "?" $ mconcat $ intersperse "&" $ [dir', from' ] <> catMaybes [to', limit', filter']
   doRequest session $ request { HTTP.queryString = queryString }
-      
+
+-- | Send arbitrary state events to a room. These events will be overwritten if
+-- <room id>, <event type> and <state key> all match.
+-- https://spec.matrix.org/v1.1/client-server-api/#put_matrixclientv3roomsroomidstateeventtypestatekey
+sendRoomStateEvent :: ClientSession -> RoomID -> EventType -> StateKey -> Value -> MatrixIO EventID 
+sendRoomStateEvent session (RoomID rid) (EventType et) (StateKey key) event = do
+  request <- mkRequest session True $ "/_matrix/client/v3/rooms/" <> escapeUriComponent rid <> "/state/" <> escapeUriComponent et <> "/" <> escapeUriComponent key
+  doRequest session $
+    request { HTTP.method = "PUT"
+            , HTTP.requestBody = HTTP.RequestBodyLBS $ encode event
+            }
+
+newtype TxnID = TxnID T.Text deriving (Show, Eq)
+
+-- | This endpoint is used to send a message event to a room.
+-- https://spec.matrix.org/v1.1/client-server-api/#put_matrixclientv3roomsroomidsendeventtypetxnid
+sendMessage :: ClientSession -> RoomID -> Event -> TxnID -> MatrixIO EventID
+sendMessage session (RoomID roomId) event (TxnID txnId) = do
+  request <- mkRequest session True path
+  doRequest
+    session
+    ( request
+        { HTTP.method = "PUT",
+          HTTP.requestBody = HTTP.RequestBodyLBS $ encode event
+        }
+    )
+  where
+    path = "/_matrix/client/r0/rooms/" <> roomId <> "/send/" <> eventId <> "/" <> txnId
+    eventId = eventType event
+
+redact :: ClientSession -> RoomID -> EventID -> TxnID -> T.Text -> MatrixIO EventID
+redact session (RoomID rid) (EventID eid) (TxnID txnid) reason = do
+  request <- mkRequest session True $ "/_matrix/client/v3/rooms/" <> rid <> "/redact/" <> eid <> "/" <> txnid
+  let body = object ["reason" .= String reason]
+  doRequest session $
+    request { HTTP.method = "PUT"
+            , HTTP.requestBody = HTTP.RequestBodyLBS $ encode body
+            }
+
 -------------------------------------------------------------------------------
 -- Room API Calls https://spec.matrix.org/v1.1/client-server-api/#rooms-1
 
@@ -539,9 +562,7 @@ setRoomAlias session (RoomAlias alias) (RoomID roomId)= do
 deleteRoomAlias :: ClientSession -> RoomAlias -> MatrixIO ()
 deleteRoomAlias session (RoomAlias alias) = do
   request <- mkRequest session True $ "/_matrix/client/v3/directory/room/" <> escapeUriComponent alias
-  doRequest
-    session $
-      request { HTTP.method = "DELETE" }
+  doRequest session $ request { HTTP.method = "DELETE" }
 
 data ResolvedAliases = ResolvedAliases [RoomAlias]
 
@@ -1178,8 +1199,8 @@ sync session filterM sinceM presenceM timeoutM = do
     qs =
       toQs "filter" (unFilterID <$> filterM)
         <> toQs "since" sinceM
-        <> toQs "set_presence" (T.pack . show <$> presenceM)
-        <> toQs "timeout" (T.pack . show <$> timeoutM)
+        <> toQs "set_presence" (tshow <$> presenceM)
+        <> toQs "timeout" (tshow <$> timeoutM)
 
 syncPoll ::
   (MonadIO m) =>
