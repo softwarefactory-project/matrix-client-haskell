@@ -138,8 +138,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map, foldrWithKey)
 import Data.Maybe (fromMaybe, catMaybes)
 import Data.Proxy (Proxy(Proxy))
-import Data.Text (Text, pack)
-import qualified Data.Text as Text
+import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import GHC.Generics
 import qualified Network.HTTP.Client as HTTP
@@ -161,7 +160,7 @@ import qualified Data.ByteString.Lazy as BL
 data LoginCredentials = LoginCredentials
   { lUsername :: Username
   , lLoginSecret :: LoginSecret
-  , lBaseUrl :: Text
+  , lBaseUrl :: T.Text
   , lDeviceId :: Maybe DeviceId
   , lInitialDeviceDisplayName :: Maybe InitialDeviceDisplayName
   }
@@ -193,7 +192,7 @@ logout session@ClientSession {..} = do
 
 -- | The session record, use 'createSession' to create it.
 data ClientSession = ClientSession
-  { baseUrl :: Text,
+  { baseUrl :: T.Text,
     token :: MatrixToken,
     manager :: HTTP.Manager
   }
@@ -201,13 +200,13 @@ data ClientSession = ClientSession
 -- | 'createSession' creates the session record.
 createSession ::
   -- | The matrix client-server base url, e.g. "https://matrix.org"
-  Text ->
+  T.Text ->
   -- | The user token
   MatrixToken ->
   IO ClientSession
 createSession baseUrl' token' = ClientSession baseUrl' token' <$> mkManager
 
-mkRequest :: ClientSession -> Bool -> Text -> IO HTTP.Request
+mkRequest :: ClientSession -> Bool -> T.Text -> IO HTTP.Request
 mkRequest ClientSession {..} = mkRequest' baseUrl token
 
 doRequest :: FromJSON a => ClientSession -> HTTP.Request -> MatrixIO a
@@ -220,15 +219,15 @@ getTokenOwner session =
 
 -- | A workaround data type to handle room create error being reported with a {message: "error"} response
 data CreateRoomResponse = CreateRoomResponse
-  { crrMessage :: Maybe Text,
-    crrID :: Maybe Text
+  { crrMessage :: Maybe T.Text,
+    crrID :: Maybe T.Text
   }
 
 instance FromJSON CreateRoomResponse where
   parseJSON (Object o) = CreateRoomResponse <$> o .:? "message" <*> o .:? "room_id"
   parseJSON _ = mzero
 
-newtype TxnID = TxnID Text deriving (Show, Eq)
+newtype TxnID = TxnID T.Text deriving (Show, Eq)
 
 sendMessage :: ClientSession -> RoomID -> Event -> TxnID -> MatrixIO EventID
 sendMessage session (RoomID roomId) event (TxnID txnId) = do
@@ -252,7 +251,7 @@ getRoomEvent session (RoomID rid) (EventID eid) = do
   request <- mkRequest session True $ "/_matrix/client/v3/rooms/" <> rid <> "/event/" <> eid
   doRequest session request
 
-data User = User { userDisplayName :: Text, userAvatarUrl :: Maybe Text }
+data User = User { userDisplayName :: T.Text, userAvatarUrl :: Maybe T.Text }
   deriving Show
 
 instance FromJSON User where
@@ -278,11 +277,11 @@ getRoomMembers session (RoomID rid) = do
   request <- mkRequest session True $ "/_matrix/client/v3/rooms/" <> rid <> "/joined_members"
   fmap (fmap coerce) $ doRequest @JoinedUsers session request
     
-newtype StateKey = StateKey Text
+newtype StateKey = StateKey T.Text
   deriving stock Show
   deriving newtype FromJSON
 
-newtype EventType = EventType Text
+newtype EventType = EventType T.Text
   deriving stock Show
   deriving newtype FromJSON
 
@@ -295,35 +294,35 @@ instance FromJSON MRCreate where
     mrcRoomVersion <- o .: "room_version"
     pure $ MRCreate {..}
 
-newtype MRName = MRName { mrnName :: Text }
+newtype MRName = MRName { mrnName :: T.Text }
   deriving Show
 
 instance FromJSON MRName where
   parseJSON = withObject "RoomName" $ \o ->
     MRName <$> (o .: "name")
 
-newtype MRCanonicalAlias = MRCanonicalAlias { mrcAlias :: Text }
+newtype MRCanonicalAlias = MRCanonicalAlias { mrcAlias :: T.Text }
   deriving Show
 
 instance FromJSON MRCanonicalAlias where
   parseJSON = withObject "RoomCanonicalAlias" $ \o ->
     MRCanonicalAlias <$> (o .: "alias")
 
-newtype MRGuestAccess = MRGuestAccess { mrGuestAccess :: Text }
+newtype MRGuestAccess = MRGuestAccess { mrGuestAccess :: T.Text }
   deriving Show
 
 instance FromJSON MRGuestAccess where
   parseJSON = withObject "GuestAccess" $ \o ->
     MRGuestAccess <$> (o .: "guest_access")
 
-newtype MRHistoryVisibility = MRHistoryVisibility { mrHistoryVisibility :: Text }
+newtype MRHistoryVisibility = MRHistoryVisibility { mrHistoryVisibility :: T.Text }
   deriving Show
 
 instance FromJSON MRHistoryVisibility where
   parseJSON = withObject "HistoryVisibility" $ \o ->
     MRHistoryVisibility <$> (o .: "history_visibility")
 
-newtype MRTopic = MRTopic { mrTopic :: Text }
+newtype MRTopic = MRTopic { mrTopic :: T.Text }
   deriving Show
 
 instance FromJSON MRTopic where
@@ -426,9 +425,9 @@ renderDir B = "b"
 
 data PaginatedRoomMessages = PaginatedRoomMessages
   { chunk :: [RoomEvent]
-  , end :: Maybe Text
+  , end :: Maybe T.Text
   -- ^ A token corresponding to the end of chunk. 
-  , start :: Text
+  , start :: T.Text
   -- ^ A token corresponding to the start of chunk.
   , state :: [StateEvent]
   -- ^ A list of state events relevant to showing the chunk.
@@ -451,7 +450,7 @@ getRoomMessages ::
   -- | A 'RoomEventFilter' to filter returned events with.
   Maybe RoomEventFilter -> 
   -- | The Since value to start returning events from. 
-  Text ->
+  T.Text ->
   -- | The maximum number of events to return. Default: 10.
   Maybe Int ->
   -- | The token to stop returning events at. 
@@ -492,20 +491,20 @@ createRoom session rcr = do
         (_, Just message) -> Left $ MatrixError "UNKNOWN" message Nothing
         _ -> Left $ MatrixError "UNKOWN" "" Nothing
 
-newtype RoomAlias = RoomAlias Text deriving (Show, Eq, Ord, Hashable)
+newtype RoomAlias = RoomAlias T.Text deriving (Show, Eq, Ord, Hashable)
 
 data ResolvedRoomAlias = ResolvedRoomAlias
   { roomAlias :: RoomAlias
   , roomID :: RoomID
   -- ^ The room ID for this room alias.
-  , servers :: [Text]
+  , servers :: [T.Text]
   -- ^ A list of servers that are aware of this room alias.
   } deriving Show
 
 -- | Boilerplate data type for an aeson instance
 data RoomAliasMetadata = RoomAliasMetadata
   { ramRoomID :: RoomID
-  , ramServers :: [Text]
+  , ramServers :: [T.Text]
   }
 
 instance FromJSON RoomAliasMetadata where
@@ -581,7 +580,7 @@ getJoinedRooms session = do
   response <- doRequest session request
   pure $ unRooms <$> response
 
-newtype RoomID = RoomID Text deriving (Show, Eq, Ord, Hashable)
+newtype RoomID = RoomID T.Text deriving (Show, Eq, Ord, Hashable)
 
 instance FromJSON RoomID where
   parseJSON (Object v) = RoomID <$> v .: "room_id"
@@ -590,7 +589,7 @@ instance FromJSON RoomID where
 -- | Invites a user to participate in a particular room. They do not
 -- start participating in the room until they actually join the room.
 -- https://spec.matrix.org/v1.1/client-server-api/#post_matrixclientv3roomsroomidinvite
-inviteToRoom :: ClientSession -> RoomID -> UserID -> Maybe Text -> MatrixIO ()
+inviteToRoom :: ClientSession -> RoomID -> UserID -> Maybe T.Text -> MatrixIO ()
 inviteToRoom session (RoomID rid) (UserID uid) reason = do
   request <- mkRequest session True $ "/_matrix/client/v3/rooms/" <> rid <> "/invite"
   let body = object $ [("user_id", toJSON uid)] <> catMaybes [fmap (("reason",) . toJSON) reason]
@@ -601,7 +600,7 @@ inviteToRoom session (RoomID rid) (UserID uid) reason = do
 
 -- | Note that this API takes either a room ID or alias, unlike 'joinRoomById'
 -- https://spec.matrix.org/v1.1/client-server-api/#post_matrixclientv3joinroomidoralias
-joinRoom :: ClientSession -> Text -> MatrixIO RoomID
+joinRoom :: ClientSession -> T.Text -> MatrixIO RoomID
 joinRoom session roomName = do
   request <- mkRequest session True $ "/_matrix/client/r0/join/" <> roomNameUrl
   doRequest session (request {HTTP.method = "POST"})
@@ -616,13 +615,10 @@ joinRoomById session (RoomID roomId) = do
   request <- mkRequest session True $ "/_matrix/client/r0/rooms/" <> roomId <> "/join"
   doRequest session (request {HTTP.method = "POST"})
 
-indistinct :: Either x x -> x
-indistinct = id `either` id
-
 -- | This API “knocks” on the room to ask for permission to join, if
 -- the user is allowed to knock on the room.
 -- https://spec.matrix.org/v1.1/client-server-api/#post_matrixclientv3knockroomidoralias
-knockOnRoom :: ClientSession -> Either RoomID RoomAlias -> [Text] -> Maybe Text -> MatrixIO RoomID
+knockOnRoom :: ClientSession -> Either RoomID RoomAlias -> [T.Text] -> Maybe T.Text -> MatrixIO RoomID
 knockOnRoom session room servers reason = do
   request <- mkRequest session True $ " /_matrix/client/v3/knock/" <> indistinct (bimap coerce coerce room)
   let body = object $ catMaybes [fmap (("reason",) . toJSON) reason]
@@ -659,7 +655,7 @@ leaveRoomById session (RoomID roomId) = do
 
 -- | Kick a user from the room.
 -- https://spec.matrix.org/v1.1/client-server-api/#post_matrixclientv3roomsroomidkick
-kickUser :: ClientSession -> RoomID -> UserID -> Maybe Text -> MatrixIO ()
+kickUser :: ClientSession -> RoomID -> UserID -> Maybe T.Text -> MatrixIO ()
 kickUser session (RoomID roomId) (UserID uid) reason = do
   request <- mkRequest session True $ "/_matrix/client/v3/rooms/" <> roomId <> "/kick"
   let body = object $ [("user_id", toJSON uid)] <> catMaybes [fmap (("reason",) . toJSON) reason]
@@ -675,7 +671,7 @@ kickUser session (RoomID roomId) (UserID uid) reason = do
 
 -- | Ban a user in the room. If the user is currently in the room, also kick them.
 -- https://spec.matrix.org/v1.1/client-server-api/#post_matrixclientv3roomsroomidban
-banUser :: ClientSession -> RoomID -> UserID -> Maybe Text -> MatrixIO ()
+banUser :: ClientSession -> RoomID -> UserID -> Maybe T.Text -> MatrixIO ()
 banUser session (RoomID roomId) (UserID uid) reason = do
   request <- mkRequest session True $ "/_matrix/client/v3/rooms/" <> roomId <> "/ban"
   let body = object $ [("user_id", toJSON uid)] <> catMaybes [fmap (("reason",) . toJSON) reason]
@@ -693,7 +689,7 @@ banUser session (RoomID roomId) (UserID uid) reason = do
 -- room, and join if they would otherwise be allowed to join according
 -- to its join rules.
 -- https://spec.matrix.org/v1.1/client-server-api/#post_matrixclientv3roomsroomidunban
-unbanUser :: ClientSession -> RoomID -> UserID -> Maybe Text -> MatrixIO ()
+unbanUser :: ClientSession -> RoomID -> UserID -> Maybe T.Text -> MatrixIO ()
 unbanUser session (RoomID roomId) (UserID uid) reason = do
   request <- mkRequest session True $ "/_matrix/client/v3/rooms/" <> roomId <> "/unban"
   let body = object $ [("user_id", toJSON uid)] <> catMaybes [fmap (("reason",) . toJSON) reason]
@@ -755,20 +751,20 @@ setRoomVisibility session (RoomID rid) visibility = do
 -- get the next (or previous) batch of rooms. The direction of
 -- pagination is specified solely by which token is supplied, rather
 -- than via an explicit flag.
-newtype PaginationChunk = PaginationChunk { getChunk :: Text }
+newtype PaginationChunk = PaginationChunk { getChunk :: T.Text }
   deriving stock (Show)
   deriving newtype (ToJSON, FromJSON)
 
 data Room = Room
-  { aliases :: Maybe [Text]
-  , avatarUrl :: Maybe Text
-  , canonicalAlias :: Maybe Text
+  { aliases :: Maybe [T.Text]
+  , avatarUrl :: Maybe T.Text
+  , canonicalAlias :: Maybe T.Text
   , guestCanJoin :: Bool
-  , joinRule :: Maybe Text
-  , name :: Maybe Text
+  , joinRule :: Maybe T.Text
+  , name :: Maybe T.Text
   , numJoinedMembers :: Int
   , roomId :: RoomID
-  , topic :: Maybe Text
+  , topic :: Maybe T.Text
   , worldReadable :: Bool
   } deriving Show
 
@@ -787,18 +783,18 @@ instance FromJSON Room where
     pure $ Room {..}
 
 data PublicRooms = PublicRooms
-  { chunk :: [Room]
-  , nextBatch :: Maybe PaginationChunk
-  , prevBatch :: Maybe PaginationChunk
-  , totalRoomCountEstimate :: Maybe Int
+  { prChunk :: [Room]
+  , prNextBatch :: Maybe PaginationChunk
+  , prPrevBatch :: Maybe PaginationChunk
+  , prTotalRoomCountEstimate :: Maybe Int
   } deriving Show
 
 instance FromJSON PublicRooms where
   parseJSON = withObject "PublicRooms" $ \o -> do
-    chunk <- o .: "chunk"
-    nextBatch <- o .:? "next_batch"
-    prevBatch <- o .:? "prev_batch"
-    totalRoomCountEstimate <- o .:? "total_room_count_estimate"
+    prChunk <- o .: "chunk"
+    prNextBatch <- o .:? "next_batch"
+    prPrevBatch <- o .:? "prev_batch"
+    prTotalRoomCountEstimate <- o .:? "total_room_count_estimate"
     pure $ PublicRooms {..}
 
 -- | Lists the public rooms on the server.
@@ -807,17 +803,17 @@ getPublicRooms :: ClientSession -> Maybe Int -> Maybe PaginationChunk -> MatrixI
 getPublicRooms session limit chunk = do
   request <- mkRequest session True "/_matrix/client/v3/publicRooms"
   let since = fmap (mappend "since=" . getChunk) chunk
-      limit' = fmap (mappend "limit=" . pack . show) limit
+      limit' = fmap (mappend "limit=" . tshow) limit
       queryString = encodeUtf8 $ mconcat $ intersperse "&" $ catMaybes [since, limit']
   doRequest session $
     request { HTTP.queryString = queryString }
 
-newtype ThirdPartyInstanceId = ThirdPartyInstanceId Text
+newtype ThirdPartyInstanceId = ThirdPartyInstanceId T.Text
   deriving (FromJSON, ToJSON)
 
 -- | Lists the public rooms on the server, with optional filter.
 -- https://spec.matrix.org/v1.1/client-server-api/#post_matrixclientv3publicrooms
-getPublicRooms' :: ClientSession -> Maybe Int -> Maybe PaginationChunk -> Maybe Text -> Maybe Bool -> Maybe ThirdPartyInstanceId-> MatrixIO PublicRooms
+getPublicRooms' :: ClientSession -> Maybe Int -> Maybe PaginationChunk -> Maybe T.Text -> Maybe Bool -> Maybe ThirdPartyInstanceId-> MatrixIO PublicRooms
 getPublicRooms' session limit chunk searchTerm includeAllNetworks thirdPartyId = do
   request <- mkRequest session True "/_matrix/client/v3/publicRooms"
   let filter' = object $ catMaybes [ fmap (("generic_search_term",) . toJSON) searchTerm]
@@ -833,7 +829,7 @@ getPublicRooms' session limit chunk searchTerm includeAllNetworks thirdPartyId =
   
 -------------------------------------------------------------------------------
 -- https://matrix.org/docs/spec/client_server/latest#post-matrix-client-r0-user-userid-filter
-newtype FilterID = FilterID Text deriving (Show, Eq, Hashable)
+newtype FilterID = FilterID T.Text deriving (Show, Eq, Hashable)
 
 instance FromJSON FilterID where
   parseJSON (Object v) = FilterID <$> v .: "filter_id"
@@ -854,10 +850,10 @@ instance FromJSON EventFormat where
 
 data EventFilter = EventFilter
   { efLimit :: Maybe Int,
-    efNotSenders :: Maybe [Text],
-    efNotTypes :: Maybe [Text],
-    efSenders :: Maybe [Text],
-    efTypes :: Maybe [Text]
+    efNotSenders :: Maybe [T.Text],
+    efNotTypes :: Maybe [T.Text],
+    efSenders :: Maybe [T.Text],
+    efTypes :: Maybe [T.Text]
   }
   deriving (Show, Eq, Generic)
 
@@ -879,14 +875,14 @@ instance FromJSON EventFilter where
 
 data RoomEventFilter = RoomEventFilter
   { refLimit :: Maybe Int,
-    refNotSenders :: Maybe [Text],
-    refNotTypes :: Maybe [Text],
-    refSenders :: Maybe [Text],
-    refTypes :: Maybe [Text],
+    refNotSenders :: Maybe [T.Text],
+    refNotTypes :: Maybe [T.Text],
+    refSenders :: Maybe [T.Text],
+    refTypes :: Maybe [T.Text],
     refLazyLoadMembers :: Maybe Bool,
     refIncludeRedundantMembers :: Maybe Bool,
-    refNotRooms :: Maybe [Text],
-    refRooms :: Maybe [Text],
+    refNotRooms :: Maybe [T.Text],
+    refRooms :: Maybe [T.Text],
     refContainsUrl :: Maybe Bool
   }
   deriving (Show, Eq, Generic)
@@ -906,14 +902,14 @@ instance FromJSON RoomEventFilter where
 
 data StateFilter = StateFilter
   { sfLimit :: Maybe Int,
-    sfNotSenders :: Maybe [Text],
-    sfNotTypes :: Maybe [Text],
-    sfSenders :: Maybe [Text],
-    sfTypes :: Maybe [Text],
+    sfNotSenders :: Maybe [T.Text],
+    sfNotTypes :: Maybe [T.Text],
+    sfSenders :: Maybe [T.Text],
+    sfTypes :: Maybe [T.Text],
     sfLazyLoadMembers :: Maybe Bool,
     sfIncludeRedundantMembers :: Maybe Bool,
-    sfNotRooms :: Maybe [Text],
-    sfRooms :: Maybe [Text],
+    sfNotRooms :: Maybe [T.Text],
+    sfRooms :: Maybe [T.Text],
     sfContains_url :: Maybe Bool
   }
   deriving (Show, Eq, Generic)
@@ -931,8 +927,8 @@ instance FromJSON StateFilter where
   parseJSON = genericParseJSON aesonOptions
 
 data RoomFilter = RoomFilter
-  { rfNotRooms :: Maybe [Text],
-    rfRooms :: Maybe [Text],
+  { rfNotRooms :: Maybe [T.Text],
+    rfRooms :: Maybe [T.Text],
     rfEphemeral :: Maybe RoomEventFilter,
     rfIncludeLeave :: Maybe Bool,
     rfState :: Maybe StateFilter,
@@ -951,7 +947,7 @@ instance FromJSON RoomFilter where
   parseJSON = genericParseJSON aesonOptions
 
 data Filter = Filter
-  { filterEventFields :: Maybe [Text],
+  { filterEventFields :: Maybe [T.Text],
     filterEventFormat :: Maybe EventFormat,
     filterPresence :: Maybe EventFilter,
     filterAccountData :: Maybe EventFilter,
@@ -1020,13 +1016,13 @@ getFilter session (UserID userID) (FilterID filterID) =
 
 -------------------------------------------------------------------------------
 -- https://matrix.org/docs/spec/client_server/latest#get-matrix-client-r0-sync
-newtype Author = Author {unAuthor :: Text}
+newtype Author = Author {unAuthor :: T.Text}
   deriving (Show, Eq)
   deriving newtype (FromJSON, ToJSON)
 
 data RoomEvent = RoomEvent
   { reContent :: Event,
-    reType :: Text,
+    reType :: T.Text,
     reEventId :: EventID,
     reSender :: Author
   }
@@ -1041,7 +1037,7 @@ data RoomSummary = RoomSummary
 data TimelineSync = TimelineSync
   { tsEvents :: Maybe [RoomEvent],
     tsLimited :: Maybe Bool,
-    tsPrevBatch :: Maybe Text
+    tsPrevBatch :: Maybe T.Text
   }
   deriving (Show, Eq, Generic)
 
@@ -1060,7 +1056,7 @@ instance Show Presence where
     Unavailable -> "unavailable"
 
 instance ToJSON Presence where
-  toJSON ef = String . pack . show $ ef
+  toJSON ef = String . tshow $ ef
 
 instance FromJSON Presence where
   parseJSON v = case v of
@@ -1070,35 +1066,25 @@ instance FromJSON Presence where
     _ -> mzero
 
 data SyncResult = SyncResult
-  { srNextBatch :: Text,
+  { srNextBatch :: T.Text,
     srRooms :: Maybe SyncResultRoom
   }
   deriving (Show, Eq, Generic)
 
 data SyncResultRoom = SyncResultRoom
-  { srrJoin :: Maybe (Map Text JoinedRoomSync)
-  , srrInvite :: Maybe (Map Text InvitedRoomSync)
+  { srrJoin :: Maybe (Map T.Text JoinedRoomSync)
+  , srrInvite :: Maybe (Map T.Text InvitedRoomSync)
   }
   deriving (Show, Eq, Generic)
 
 data InvitedRoomSync = InvitedRoomSync
   deriving (Show, Eq, Generic)
 
-unFilterID :: FilterID -> Text
+unFilterID :: FilterID -> T.Text
 unFilterID (FilterID x) = x
 
 -------------------------------------------------------------------------------
 -- https://matrix.org/docs/spec/client_server/latest#forming-relationships-between-events
-
-headMaybe :: [a] -> Maybe a
-headMaybe xs = case xs of
-  [] -> Nothing
-  (x : _) -> Just x
-
-tail' :: [a] -> [a]
-tail' xs = case xs of
-  [] -> []
-  (_ : rest) -> rest
 
 -- | An helper to create a reply body
 --
@@ -1111,16 +1097,16 @@ tail' xs = case xs of
 --
 -- >>> addReplyBody sender "a multi\nline" "resp"
 -- "> <foo@matrix.org> a multi\n> line\n\nresp"
-addReplyBody :: Author -> Text -> Text -> Text
+addReplyBody :: Author -> T.Text -> T.Text -> T.Text
 addReplyBody (Author author) old reply =
-  let oldLines = Text.lines old
+  let oldLines = T.lines old
       headLine = "> <" <> author <> ">" <> maybe "" (mappend " ") (headMaybe oldLines)
       newBody = [headLine] <> map (mappend "> ") (tail' oldLines) <> [""] <> [reply]
-   in Text.dropEnd 1 $ Text.unlines newBody
+   in T.dropEnd 1 $ T.unlines newBody
 
-addReplyFormattedBody :: RoomID -> EventID -> Author -> Text -> Text -> Text
+addReplyFormattedBody :: RoomID -> EventID -> Author -> T.Text -> T.Text -> T.Text
 addReplyFormattedBody (RoomID roomID) (EventID eventID) (Author author) old reply =
-  Text.unlines
+  T.unlines
     [ "<mx-reply>",
       "  <blockquote>",
       "    <a href=\"https://matrix.to/#/" <> roomID <> "/" <> eventID <> "\">In reply to</a>",
@@ -1136,14 +1122,14 @@ addReplyFormattedBody (RoomID roomID) (EventID eventID) (Author author) old repl
 --
 -- >>> toFormattedBody "& <test>"
 -- "&amp; &lt;test&gt;"
-toFormattedBody :: Text -> Text
-toFormattedBody = Text.concatMap char
+toFormattedBody :: T.Text -> T.Text
+toFormattedBody = T.concatMap char
   where
     char x = case x of
       '<' -> "&lt;"
       '>' -> "&gt;"
       '&' -> "&amp;"
-      _ -> Text.singleton x
+      _ -> T.singleton x
 
 -- | Prepare a reply event
 mkReply ::
@@ -1180,7 +1166,7 @@ mkReply room re mt =
         EventUnknown x -> error $ "Can't reply to " <> show x
    in EventRoomReply eventID (RoomMessageText newMessage)
 
-sync :: ClientSession -> Maybe FilterID -> Maybe Text -> Maybe Presence -> Maybe Int -> MatrixIO SyncResult
+sync :: ClientSession -> Maybe FilterID -> Maybe T.Text -> Maybe Presence -> Maybe Int -> MatrixIO SyncResult
 sync session filterM sinceM presenceM timeoutM = do
   request <- mkRequest session True "/_matrix/client/r0/sync"
   doRequest session (HTTP.setQueryString qs request)
@@ -1191,8 +1177,8 @@ sync session filterM sinceM presenceM timeoutM = do
     qs =
       toQs "filter" (unFilterID <$> filterM)
         <> toQs "since" sinceM
-        <> toQs "set_presence" (pack . show <$> presenceM)
-        <> toQs "timeout" (pack . show <$> timeoutM)
+        <> toQs "set_presence" (T.pack . show <$> presenceM)
+        <> toQs "timeout" (T.pack . show <$> timeoutM)
 
 syncPoll ::
   (MonadIO m) =>
@@ -1201,7 +1187,7 @@ syncPoll ::
   -- | A sync filter, use 'createFilter' to get one.
   Maybe FilterID ->
   -- | A since value, get it from a previous sync result using the 'srNextBatch' field.
-  Maybe Text ->
+  Maybe T.Text ->
   -- | Set the session presence.
   Maybe Presence ->
   -- | Your callback to handle sync result.
@@ -1220,7 +1206,7 @@ syncPoll session filterM sinceM presenceM cb = go sinceM
 getTimelines :: SyncResult -> [(RoomID, NonEmpty RoomEvent)]
 getTimelines sr = foldrWithKey getEvents [] joinedRooms
   where
-    getEvents :: Text -> JoinedRoomSync -> [(RoomID, NonEmpty RoomEvent)] -> [(RoomID, NonEmpty RoomEvent)]
+    getEvents :: T.Text -> JoinedRoomSync -> [(RoomID, NonEmpty RoomEvent)] -> [(RoomID, NonEmpty RoomEvent)]
     getEvents roomID jrs acc = case tsEvents (jrsTimeline jrs) of
       Just (x : xs) -> (RoomID roomID, x :| xs) : acc
       _ -> acc
@@ -1279,11 +1265,11 @@ instance ToJSON SyncResultRoom where
 instance FromJSON SyncResultRoom where
   parseJSON = genericParseJSON aesonOptions
 
-getAccountData' :: (FromJSON a) => ClientSession -> UserID -> Text -> MatrixIO a
+getAccountData' :: (FromJSON a) => ClientSession -> UserID -> T.Text -> MatrixIO a
 getAccountData' session userID t =
   mkRequest session True (accountDataPath userID t) >>= doRequest session
 
-setAccountData' :: (ToJSON a) => ClientSession -> UserID -> Text -> a -> MatrixIO ()
+setAccountData' :: (ToJSON a) => ClientSession -> UserID -> T.Text -> a -> MatrixIO ()
 setAccountData' session userID t value = do
   request <- mkRequest session True $ accountDataPath userID t
   void <$> (doRequest session $ request
@@ -1292,12 +1278,12 @@ setAccountData' session userID t value = do
              } :: MatrixIO Aeson.Object
            )
 
-accountDataPath :: UserID -> Text -> Text
+accountDataPath :: UserID -> T.Text -> T.Text
 accountDataPath (UserID userID) t =
   "/_matrix/client/r0/user/" <> userID <> "/account_data/" <> t
 
 class (FromJSON a, ToJSON a) => AccountData a where
-  accountDataType :: proxy a -> Text
+  accountDataType :: proxy a -> T.Text
 
 getAccountData :: forall a. (AccountData a) => ClientSession -> UserID -> MatrixIO a
 getAccountData session userID = getAccountData' session userID $
@@ -1306,3 +1292,22 @@ getAccountData session userID = getAccountData' session userID $
 setAccountData :: forall a. (AccountData a) => ClientSession -> UserID -> a -> MatrixIO ()
 setAccountData session userID = setAccountData' session userID $
                                 accountDataType (Proxy :: Proxy a)
+
+-------------------------------------------------------------------------------
+-- Utils
+
+headMaybe :: [a] -> Maybe a
+headMaybe xs = case xs of
+  [] -> Nothing
+  (x : _) -> Just x
+
+tail' :: [a] -> [a]
+tail' xs = case xs of
+  [] -> []
+  (_ : rest) -> rest
+
+indistinct :: Either x x -> x
+indistinct = id `either` id
+
+tshow :: Show a => a -> T.Text
+tshow = T.pack . show
