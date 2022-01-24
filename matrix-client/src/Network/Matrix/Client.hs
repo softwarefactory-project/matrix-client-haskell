@@ -254,21 +254,35 @@ createRoom session rcr = do
 
 newtype RoomAlias = RoomAlias Text deriving (Show, Eq, Ord, Hashable)
 
-data ResolvedRoomAlias = ResolvedRoomAlias { roomID :: RoomID, servers :: [Text] }
+data ResolvedRoomAlias = ResolvedRoomAlias
+  { roomAlias :: RoomAlias
+  , roomID :: RoomID
+  -- ^ The room ID for this room alias.
+  , servers :: [Text]
+  -- ^ A list of servers that are aware of this room alias.
+  } deriving Show
 
-instance FromJSON ResolvedRoomAlias where
+-- | Boilerplate data type for an aeson instance
+data RoomAliasMetadata = RoomAliasMetadata
+  { ramRoomID :: RoomID
+  , ramServers :: [Text]
+  }
+
+instance FromJSON RoomAliasMetadata where
   parseJSON = withObject "ResolvedRoomAlias" $ \o -> do
-    roomID <- o .: "room_id"
-    servers <- o .: "servers"
-    pure $ ResolvedRoomAlias {..}
+    ramRoomID <- o .: "room_id"
+    ramServers <- o .: "servers"
+    pure $ RoomAliasMetadata {..}
 
 -- | Requests that the server resolve a room alias to a room ID.
 -- https://spec.matrix.org/v1.1/client-server-api/#get_matrixclientv3directoryroomroomalias
 resolveRoomAlias :: ClientSession -> RoomAlias -> MatrixIO ResolvedRoomAlias
-resolveRoomAlias session (RoomAlias alias) = do
+resolveRoomAlias session r@(RoomAlias alias) = do
   request <- mkRequest session True $ "/_matrix/client/v3/directory/room/" <> alias
-  doRequest
-    session $ request { HTTP.method = "GET" }
+  resp <- doRequest session $ request { HTTP.method = "GET" }
+  case resp of
+    Left err -> pure $ Left err
+    Right RoomAliasMetadata {..} -> pure $ Right $ ResolvedRoomAlias r ramRoomID ramServers
 
 -- | Create a mapping of room alias to room ID.
 -- https://spec.matrix.org/v1.1/client-server-api/#put_matrixclientv3directoryroomroomalias
@@ -454,7 +468,7 @@ unbanUser session (RoomID roomId) (UserID uid) reason = do
       _anyOther -> error $ "Unknown leave response: " <> show value
 
 data Visibility = Public | Private
-  deriving Generic
+  deriving (Show)
 
 instance ToJSON Visibility where
   toJSON = \case
@@ -467,12 +481,19 @@ instance FromJSON Visibility where
     "private" -> pure Private
     _ -> mzero
 
+newtype GetVisibility = GetVisibility { getVisibility :: Visibility }
+
+instance FromJSON GetVisibility where
+  parseJSON = withObject "GetVisibility" $ \o -> do
+    getVisibility <- o .: "visibility"
+    pure $ GetVisibility {..}
+    
 -- | Gets the visibility of a given room on the server’s public room directory.
 -- https://spec.matrix.org/v1.1/client-server-api/#get_matrixclientv3directorylistroomroomid
 checkRoomVisibility :: ClientSession -> RoomID -> MatrixIO Visibility
 checkRoomVisibility session (RoomID rid) = do
   request <- mkRequest session True $ "/_matrix/client/v3/directory/list/room/" <> rid
-  doRequest session request
+  fmap (fmap getVisibility) $ doRequest session request
     
 -- | Sets the visibility of a given room in the server’s public room directory.
 -- https://spec.matrix.org/v1.1/client-server-api/#put_matrixclientv3directorylistroomroomid
