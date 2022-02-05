@@ -14,7 +14,7 @@
     flake-utils.lib.eachSystem [ "x86_64-linux" ] (system:
       let
         config = { };
-        compilerVersion = "8104";
+        compilerVersion = "8107";
         compiler = "ghc" + compilerVersion;
         overlays = [
           (final: prev: {
@@ -85,6 +85,7 @@
             doctest
             hlint
             pkgs.haskell-language-server
+            pkgs.ghcid
             testScript
             dendriteStart
             dendriteSetup
