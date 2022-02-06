@@ -3,15 +3,19 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -Wno-missing-export-lists #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | This module contains low-level HTTP utility
 module Network.Matrix.Internal where
 
 import Control.Concurrent (threadDelay)
-import Control.Exception (Exception, throw, throwIO)
-import Control.Monad (mzero, unless, void)
-import Control.Monad.Catch (Handler (Handler), MonadMask)
-import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Exception (throw, throwIO)
 import Control.Retry (RetryStatus (..))
 import qualified Control.Retry as Retry
 import Data.Aeson (FromJSON (..), FromJSONKey (..), Value (Object), encode, eitherDecode, object, withObject, (.:), (.:?), (.=))
@@ -27,6 +31,8 @@ import Network.HTTP.Types (Status (..))
 import Network.HTTP.Types.Status (statusIsSuccessful)
 import System.Environment (getEnv)
 import System.IO (stderr)
+import Control.Monad.Except
+import Control.Monad.Catch.Pure
 
 newtype MatrixToken = MatrixToken Text
 newtype Username = Username { username :: Text }
@@ -72,9 +78,9 @@ throwResponseError req res chunk =
   where
     ex = HTTP.StatusCodeException (void res) (toStrict chunk)
 
-mkRequest' :: Text -> MatrixToken -> Bool -> Text -> IO HTTP.Request
+mkRequest' :: MonadIO m => Text -> MatrixToken -> Bool -> Text -> m HTTP.Request
 mkRequest' baseUrl (MatrixToken token) auth path = do
-  initRequest <- HTTP.parseUrlThrow (unpack $ baseUrl <> path)
+  initRequest <- liftIO $ HTTP.parseUrlThrow (unpack $ baseUrl <> path)
   pure $
     initRequest
       { HTTP.requestHeaders =
@@ -156,7 +162,17 @@ instance FromJSON MatrixError where
 -- | 'MatrixIO' is a convenient type alias for server response
 type MatrixIO a = MatrixM IO a
 
-type MatrixM m a = m (Either MatrixError a)
+newtype MatrixM m a = MatrixM { runMatrixM :: ExceptT MatrixError m a }
+  deriving newtype ( Functor
+                   , Applicative
+                   , Monad
+                   , MonadError MatrixError
+                   , MonadIO
+                   , MonadThrow
+                   , MonadCatch
+                   , MonadMask
+                   , MonadTrans
+                   )
 
 -- | Retry a network action
 retryWithLog ::
@@ -169,21 +185,19 @@ retryWithLog ::
   MatrixM m a ->
   MatrixM m a
 retryWithLog limit logRetry action =
-  Retry.recovering
+  Retry.recovering 
     (Retry.exponentialBackoff backoff <> Retry.limitRetries limit)
     [handler, rateLimitHandler]
-    (const checkAction)
+    (const (checkAction))
   where
-    checkAction = do
-      res <- action
-      case res of
-        Left (MatrixError "M_LIMIT_EXCEEDED" err delayMS) -> do
+    checkAction =
+      action `catchError` \case
+        MatrixError "M_LIMIT_EXCEEDED" err delayMS -> do
           -- Reponse contains a retry_after_ms
-          logRetry $ "RateLimit: " <> err <> " (delay: " <> pack (show delayMS) <> ")"
+          lift $ logRetry $ "RateLimit: " <> err <> " (delay: " <> pack (show delayMS) <> ")"
           liftIO $ threadDelay $ fromMaybe 5_000 delayMS * 1000
           throw MatrixRateLimit
-        _ -> pure res
-
+        e -> throwError e
     backoff = 1000000 -- 1sec
     rateLimitHandler _ = Handler $ \case
       MatrixRateLimit -> pure True
@@ -193,7 +207,7 @@ retryWithLog limit logRetry action =
         let url = decodeUtf8 (HTTP.host req) <> ":" <> pack (show (HTTP.port req)) <> decodeUtf8 (HTTP.path req)
             arg = decodeUtf8 $ HTTP.queryString req
             loc = if num == 0 then url <> arg else url
-        logRetry $
+        lift $ logRetry $
           "NetworkFailure: "
             <> pack (show num)
             <> "/5 "
