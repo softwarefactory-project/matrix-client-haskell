@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4.0
+
+- Completes The Room API
+
 ## 0.1.3.0
 
 - Adds Lenses and Prisms
