@@ -189,7 +189,11 @@ instance MonadTrans MatrixM where
 -- | Interpret MatrixM into your inner monad. Wraps the calls that
 -- interacts with the Matrix API.
 runMatrixM :: ClientSession -> MatrixM m a -> m (Either MatrixError a)
-runMatrixM = flip coerce
+runMatrixM session = flip runReaderT session . runExceptT . unMatrixM
+
+-- | Run Matrix actions in 'IO'.
+runMatrixIO :: ClientSession -> MatrixM IO a -> IO (Either MatrixError a)
+runMatrixIO = runMatrixM
     
 -- | Retry a network action
 retryWithLog ::
