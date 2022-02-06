@@ -1,5 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE RankNTypes #-}
 
 -- | This module contains the Identity service API
 -- https://matrix.org/docs/spec/identity_service/r0.3.0.html
@@ -50,6 +53,7 @@ import qualified Network.HTTP.Client as HTTP
 import Network.Matrix.Internal
 import Control.Monad.IO.Class
 import Control.Monad.Except
+import Control.Monad.Reader
 
 -- $setup
 -- >>> import Data.Aeson (decode)
@@ -73,8 +77,8 @@ createIdentitySession baseUrl' token' = IdentitySession baseUrl' token' <$> mkMa
 mkRequest :: IdentitySession -> Bool -> Text -> IO HTTP.Request
 mkRequest IdentitySession {..} = mkRequest' baseUrl token
 
-doRequest :: FromJSON a => IdentitySession -> HTTP.Request -> MatrixIO a
-doRequest IdentitySession {..} = MatrixM . ExceptT . doRequest' manager
+doRequest :: forall a. FromJSON a => IdentitySession -> HTTP.Request -> MatrixIO a
+doRequest IdentitySession {..} request = MatrixM . ExceptT $ ReaderT (const $ doRequest' @a manager request)
 
 -- | 'getIdentityTokenOwner' gets information about the owner of a given access token.
 getIdentityTokenOwner :: IdentitySession -> MatrixIO UserID

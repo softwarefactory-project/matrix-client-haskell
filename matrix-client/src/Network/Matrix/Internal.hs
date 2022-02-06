@@ -33,6 +33,8 @@ import System.Environment (getEnv)
 import System.IO (stderr)
 import Control.Monad.Except
 import Control.Monad.Catch.Pure
+import Control.Monad.Reader
+import Data.Coerce
 
 newtype MatrixToken = MatrixToken Text
 newtype Username = Username { username :: Text }
@@ -79,8 +81,8 @@ throwResponseError req res chunk =
     ex = HTTP.StatusCodeException (void res) (toStrict chunk)
 
 mkRequest' :: MonadIO m => Text -> MatrixToken -> Bool -> Text -> m HTTP.Request
-mkRequest' baseUrl (MatrixToken token) auth path = do
-  initRequest <- liftIO $ HTTP.parseUrlThrow (unpack $ baseUrl <> path)
+mkRequest' baseUrl' (MatrixToken token') auth path = do
+  initRequest <- liftIO $ HTTP.parseUrlThrow (unpack $ baseUrl' <> path)
   pure $
     initRequest
       { HTTP.requestHeaders =
@@ -89,12 +91,12 @@ mkRequest' baseUrl (MatrixToken token) auth path = do
       }
   where
     authHeaders =
-      [("Authorization", "Bearer " <> encodeUtf8 token) | auth]
+      [("Authorization", "Bearer " <> encodeUtf8 token') | auth]
 
 mkLoginRequest' :: Text -> Maybe DeviceId -> Maybe InitialDeviceDisplayName -> Username -> LoginSecret -> IO HTTP.Request
-mkLoginRequest' baseUrl did idn (Username name) secret' = do
+mkLoginRequest' baseUrl' did idn (Username name) secret' = do
   let path = "/_matrix/client/r0/login"
-  initRequest <- HTTP.parseUrlThrow (unpack $ baseUrl <> path)
+  initRequest <- HTTP.parseUrlThrow (unpack $ baseUrl' <> path)
 
   let (secretKey, secret, secretType) = case secret' of
         Password pass -> ("password", pass, "m.login.password")
@@ -111,15 +113,15 @@ mkLoginRequest' baseUrl did idn (Username name) secret' = do
   pure $ initRequest { HTTP.method = "POST", HTTP.requestBody = body, HTTP.requestHeaders = [("Content-Type", "application/json")] }
 
 mkLogoutRequest' :: Text -> MatrixToken -> IO HTTP.Request
-mkLogoutRequest' baseUrl (MatrixToken token) = do
+mkLogoutRequest' baseUrl' (MatrixToken token') = do
   let path = "/_matrix/client/r0/logout"
-  initRequest <- HTTP.parseUrlThrow (unpack $ baseUrl <> path)
-  let headers = [("Authorization", encodeUtf8 $ "Bearer " <> token)]
+  initRequest <- HTTP.parseUrlThrow (unpack $ baseUrl' <> path)
+  let headers = [("Authorization", encodeUtf8 $ "Bearer " <> token')]
   pure $ initRequest { HTTP.method = "POST", HTTP.requestHeaders = headers }
 
 doRequest' :: FromJSON a => HTTP.Manager -> HTTP.Request -> IO (Either MatrixError a)
-doRequest' manager request = do
-  response <- HTTP.httpLbs request manager
+doRequest' manager' request = do
+  response <- HTTP.httpLbs request manager'
   case decodeResp $ HTTP.responseBody response of
     Right x -> pure x
     Left e -> if statusIsSuccessful $ HTTP.responseStatus response
@@ -162,18 +164,33 @@ instance FromJSON MatrixError where
 -- | 'MatrixIO' is a convenient type alias for server response
 type MatrixIO a = MatrixM IO a
 
-newtype MatrixM m a = MatrixM { runMatrixM :: ExceptT MatrixError m a }
-  deriving newtype ( Functor
-                   , Applicative
-                   , Monad
-                   , MonadError MatrixError
-                   , MonadIO
-                   , MonadThrow
-                   , MonadCatch
-                   , MonadMask
-                   , MonadTrans
-                   )
+-- | The session record, use 'createSession' to create it.
+data ClientSession = ClientSession
+  { baseUrl :: Text,
+    token :: MatrixToken,
+    manager :: HTTP.Manager
+  }
 
+newtype MatrixM m a = MatrixM { unMatrixM :: ExceptT MatrixError (ReaderT ClientSession m) a }
+  deriving ( Functor
+           , Applicative
+           , Monad
+           , MonadError MatrixError
+           , MonadIO
+           , MonadThrow
+           , MonadCatch
+           , MonadMask
+           , MonadReader ClientSession
+           ) via (ExceptT MatrixError (ReaderT ClientSession m))
+
+instance MonadTrans MatrixM where
+  lift = MatrixM . lift . lift
+
+-- | Interpret MatrixM into your inner monad. Wraps the calls that
+-- interacts with the Matrix API.
+runMatrixM :: ClientSession -> MatrixM m a -> m (Either MatrixError a)
+runMatrixM = flip coerce
+    
 -- | Retry a network action
 retryWithLog ::
   (MonadMask m, MonadIO m) =>
