@@ -34,7 +34,6 @@ import System.IO (stderr)
 import Control.Monad.Except
 import Control.Monad.Catch.Pure
 import Control.Monad.Reader
-import Data.Coerce
 
 newtype MatrixToken = MatrixToken Text
 newtype Username = Username { username :: Text }
@@ -176,6 +175,7 @@ newtype MatrixM m a = MatrixM { unMatrixM :: ExceptT MatrixError (ReaderT Client
            , Applicative
            , Monad
            , MonadError MatrixError
+           , MonadFail
            , MonadIO
            , MonadThrow
            , MonadCatch

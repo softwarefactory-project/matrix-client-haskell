@@ -4,7 +4,6 @@
 -- | The matrix client specification tests
 module Main (main) where
 
-import Control.Monad (void)
 import qualified Data.Aeson.Encode.Pretty as Aeson
 import qualified Data.ByteString.Lazy as BS
 import Data.Either (isLeft)
@@ -14,6 +13,7 @@ import Network.Matrix.Client
 import Network.Matrix.Internal
 import System.Environment (lookupEnv)
 import Test.Hspec
+import Control.Monad.Except
 
 main :: IO ()
 main = do
@@ -32,9 +32,8 @@ integration :: ClientSession -> ClientSession -> Spec
 integration sess1 sess2 = do
   describe "integration tests" $ do
     it "create room" $ do
-      resp <-
+      resp <- runMatrixM sess1 $ do
         createRoom
-          sess1
           ( RoomCreateRequest
               { rcrPreset = PublicChat,
                 rcrRoomAliasName = "test",
@@ -44,25 +43,51 @@ integration sess1 sess2 = do
           )
       case resp of
         Left err -> meError err `shouldBe` "Alias already exists"
-        Right (RoomID roomID) -> roomID `shouldSatisfy` (/= mempty)
-    it "join room" $ do
-      resp <- joinRoom sess1 "#test:localhost"
+        Right (RoomID roomID') -> roomID' `shouldSatisfy` (/= mempty)
+    it "join room" $ do 
+      resp <- runMatrixM sess1 $joinRoom "#test:localhost"
       case resp of
         Left err -> error (show err)
-        Right (RoomID roomID) -> roomID `shouldSatisfy` (/= mempty)
-      resp' <- joinRoom sess2 "#test:localhost"
+        Right (RoomID roomID') -> roomID' `shouldSatisfy` (/= mempty)
+      resp' <- runMatrixM sess2 $ joinRoom "#test:localhost"
       case resp' of
         Left err -> error (show err)
-        Right (RoomID roomID) -> roomID `shouldSatisfy` (/= mempty)
+        Right (RoomID roomID') -> roomID' `shouldSatisfy` (/= mempty)
     it "send message and reply" $ do
-      -- Flush previous events
-      Right sr <- sync sess2 Nothing Nothing Nothing Nothing
-      Right [room] <- getJoinedRooms sess1
-      let msg body = RoomMessageText $ MessageText body TextType Nothing Nothing
-      let since = srNextBatch sr
-      Right eventID <- sendMessage sess1 room (EventRoomMessage $ msg "Hello") (TxnID since)
-      Right reply <- sendMessage sess2 room (EventRoomReply eventID $ msg "Hi!") (TxnID since)
-      reply `shouldNotBe` eventID
+      result <- runMatrixM sess2 $ do
+        -- Flush previous events
+        sr <- sync Nothing Nothing Nothing Nothing
+        [room] <- getJoinedRooms 
+        let msg body = RoomMessageText $ MessageText body TextType Nothing Nothing
+        let since = srNextBatch sr
+        eventID <- sendMessage room (EventRoomMessage $ msg "Hello") (TxnID since)
+        reply <- sendMessage room (EventRoomReply eventID $ msg "Hi!") (TxnID since)
+        pure (reply, eventID)
+      case result of
+        Left err -> error (show err)
+        Right (reply, eventID) -> reply `shouldNotBe` eventID
+  it "does not retry on success" $
+    checkPause (<=) $ do
+      res <- runMatrixM sess1 $ retry (pure True)
+      res `shouldBe` pure True
+  it "does not retry on regular failure" $
+    checkPause (<=) $ do
+      let resp = MatrixError "test" "error" Nothing
+      res <- runMatrixM sess1 $ retry (throwError resp :: MatrixIO Int)
+      res `shouldBe` Left resp
+  it "retry on rate limit failure" $
+    checkPause (>=) $ do
+      let resp = MatrixError "M_LIMIT_EXCEEDED" "error" (Just 1000)
+      (runMatrixM sess1 $ retryWithLog 1 (const $ pure ()) (throwError resp))
+        `shouldThrow` rateLimitSelector
+  where
+    rateLimitSelector :: MatrixException -> Bool
+    rateLimitSelector MatrixRateLimit = True
+    checkPause op action = do
+      MkSystemTime start' _ <- getSystemTime
+      void action
+      MkSystemTime end' _ <- getSystemTime
+      (end' - start') `shouldSatisfy` (`op` 1)
 
 spec :: Spec
 spec = describe "unit tests" $ do
@@ -93,29 +118,7 @@ spec = describe "unit tests" $ do
   it "encode room message" $
     encodePretty (RoomMessageText (MessageText "Hello" TextType Nothing Nothing))
       `shouldBe` "{\"body\":\"Hello\",\"msgtype\":\"m.text\"}"
-  it "does not retry on success" $
-    checkPause (<=) $ do
-      let resp = Right True
-      res <- retry (pure resp)
-      res `shouldBe` resp
-  it "does not retry on regular failre" $
-    checkPause (<=) $ do
-      let resp = Left $ MatrixError "test" "error" Nothing
-      res <- (retry (pure resp) :: MatrixIO Int)
-      res `shouldBe` resp
-  it "retry on rate limit failure" $
-    checkPause (>=) $ do
-      let resp = Left $ MatrixError "M_LIMIT_EXCEEDED" "error" (Just 1000)
-      (retryWithLog 1 (const $ pure ()) (pure resp) :: MatrixIO Int)
-        `shouldThrow` rateLimitSelector
   where
-    rateLimitSelector :: MatrixException -> Bool
-    rateLimitSelector MatrixRateLimit = True
-    checkPause op action = do
-      MkSystemTime start _ <- getSystemTime
-      void action
-      MkSystemTime end _ <- getSystemTime
-      (end - start) `shouldSatisfy` (`op` 1)
     encodePretty =
       Aeson.encodePretty'
         ( Aeson.defConfig {Aeson.confIndent = Aeson.Spaces 0, Aeson.confCompare = compare @Text}
