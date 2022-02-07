@@ -23,6 +23,8 @@ module Network.Matrix.Client
     LoginResponse (..),
     getTokenFromEnv,
     createSession,
+    createWithSession,
+    createWithSessionIO,
     login,
     loginToken,
     logout,
@@ -31,6 +33,7 @@ module Network.Matrix.Client
     MatrixM,
     MatrixIO,
     runMatrixM,
+    runMatrixIO,
     MatrixError (..),
     retry,
     retryWithLog,
@@ -180,6 +183,7 @@ import Network.Matrix.Internal
     mkRequest',
     retry,
     retryWithLog,
+    runMatrixIO,
     runMatrixM,
   )
 import Network.Matrix.Room
@@ -237,6 +241,29 @@ createSession ::
   MatrixToken ->
   IO ClientSession
 createSession baseUrl' token' = ClientSession baseUrl' token' <$> mkManager
+
+createWithSession ::
+  MonadIO m =>
+  -- | The matrix client-server base url, e.g. "https://matrix.org"
+  T.Text ->
+  -- | The user token
+  MatrixToken ->
+  -- | The matrix action to perform
+  MatrixM m a ->
+  m (Either MatrixError a)
+createWithSession baseUrl' token' action = do
+  session <- liftIO $ createSession baseUrl' token'
+  runMatrixM session action
+
+createWithSessionIO ::
+  -- | The matrix client-server base url, e.g. "https://matrix.org"
+  T.Text ->
+  -- | The user token
+  MatrixToken ->
+  -- | The matrix action to perform
+  MatrixIO a ->
+  IO (Either MatrixError a)
+createWithSessionIO = createWithSession
 
 mkRequest :: MonadIO m => Bool -> T.Text -> MatrixM m HTTP.Request
 mkRequest auth path = do
