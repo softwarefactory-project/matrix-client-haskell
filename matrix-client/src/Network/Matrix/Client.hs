@@ -14,6 +14,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE StandaloneDeriving #-}
 
 -- | This module contains the client-server API
 -- https://matrix.org/docs/spec/client_server/r0.6.1
@@ -60,7 +61,7 @@ module Network.Matrix.Client
     getRoomEvent,
     getRoomMembers,
     getRoomState,
-    getRoomStateEvent,
+    getRoomStateContent,
     getRoomMessages,
     redact,
     sendRoomStateEvent,
@@ -386,7 +387,6 @@ newtype MRName = MRName { mrnName :: T.Text }
 newtype MRCanonicalAlias = MRCanonicalAlias { mrcAlias :: T.Text }
   deriving Show
 
-
 newtype MRGuestAccess = MRGuestAccess { mrGuestAccess :: T.Text }
   deriving Show
 
@@ -407,6 +407,8 @@ data StateContent et where
   ScRoomName :: MRName -> StateContent 'RoomName 
   ScRoomTopic :: MRTopic -> StateContent 'RoomTopic
   ScOther :: Value -> StateContent 'Other
+
+deriving instance Show (StateContent et)
 
 instance FromJSON (StateContent 'RoomCreate) where
   parseJSON = withObject "RoomCreate" $ \o -> do
@@ -475,9 +477,9 @@ getRoomState session (RoomID rid) = do
 -- of the room. If the user has left the room then the state is taken
 -- from the state of the room when they left.
 -- https://spec.matrix.org/v1.1/client-server-api/#get_matrixclientv3roomsroomidstateeventtypestatekey
-getRoomStateEvent :: (FromJSON (EventTypeTag et), FromJSON (StateContent et), Render (EventTypeTag et)) =>
-  ClientSession -> RoomID -> (EventTypeTag et) -> StateKey -> MatrixIO (StateEvent et)
-getRoomStateEvent session (RoomID rid) et (StateKey key) = do
+getRoomStateContent :: (FromJSON (StateContent et), Render (EventTypeTag et)) =>
+  ClientSession -> RoomID -> (EventTypeTag et) -> StateKey -> MatrixIO (StateContent et)
+getRoomStateContent session (RoomID rid) et (StateKey key) = do
   request <- mkRequest session True $ "/_matrix/client/v3/rooms/" <> rid <> "/state/" <> render et <> "/" <> key
   doRequest session request
 
