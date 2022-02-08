@@ -24,6 +24,7 @@ module Network.Matrix.Client
     getTokenFromEnv,
     createSession,
     login,
+    loginToken,
     logout,
 
     -- * API
@@ -179,12 +180,16 @@ mkLoginRequest LoginCredentials {..} =
 
 -- | 'login' allows you to generate a session token.
 login :: LoginCredentials -> IO ClientSession
-login cred = do
+login = fmap fst . loginToken 
+
+-- | 'loginToken' allows you to generate a session token and recover the Matrix auth token.
+loginToken :: LoginCredentials -> IO (ClientSession, MatrixToken)
+loginToken cred = do
   req <- mkLoginRequest cred
   manager <- mkManager
   resp' <- doRequest' manager req
   case resp' of
-    Right LoginResponse {..} -> pure $ ClientSession (lBaseUrl cred) (MatrixToken lrAccessToken) manager
+    Right LoginResponse {..} -> pure (ClientSession (lBaseUrl cred) (MatrixToken lrAccessToken) manager, (MatrixToken lrAccessToken))
     Left err ->
       -- NOTE: There is nothing to recover after a failed login attempt
       fail $ show err
