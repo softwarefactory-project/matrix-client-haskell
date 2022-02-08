@@ -1,4 +1,6 @@
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
 module Network.Matrix.Client.Lens
   ( -- MessageText
     _mtBody
@@ -230,7 +232,7 @@ _start = lens getter setter
     getter = start
     setter prm s = prm { start = s }
 
-_state :: Lens' PaginatedRoomMessages [StateEvent]
+_state :: Lens' PaginatedRoomMessages [Some StateEvent]
 _state = lens getter setter
   where
     getter = state
@@ -314,104 +316,118 @@ _refContainsUrl = lens getter setter
     getter = refContainsUrl
     setter ref rcu = ref { refContainsUrl = rcu }
 
-_StateContentMRCreate :: Prism' StateContent MRCreate
-_StateContentMRCreate = prism' to from
+_StateContentMRCreate :: Lens' (StateContent 'RoomCreate) MRCreate
+_StateContentMRCreate = lens getter setter
   where
-    to = StRoomCreate
-    from (StRoomCreate create) = Just create
-    from _ = Nothing
+    getter :: StateContent 'RoomCreate -> MRCreate
+    getter (ScRoomCreate mc) = mc
 
-_StateContentMRCanonicalAlias :: Prism' StateContent MRCanonicalAlias
-_StateContentMRCanonicalAlias = prism' to from
+    setter :: StateContent 'RoomCreate -> MRCreate -> StateContent 'RoomCreate
+    setter _ mrc = ScRoomCreate mrc
+
+_StateContentMRCanonicalAlias :: Lens' (StateContent 'RoomCanonicalAlias) MRCanonicalAlias
+_StateContentMRCanonicalAlias = lens getter setter
   where
-    to = StRoomCanonicalAlias
-    from (StRoomCanonicalAlias alias) = Just alias
-    from _ = Nothing
+    getter :: StateContent 'RoomCanonicalAlias -> MRCanonicalAlias
+    getter (ScRoomCanonicalAlias mrca) = mrca
 
-_StateContentMRGuestAccess :: Prism' StateContent MRGuestAccess
-_StateContentMRGuestAccess = prism' to from
+    setter :: StateContent 'RoomCanonicalAlias -> MRCanonicalAlias -> StateContent 'RoomCanonicalAlias
+    setter _ mrca = ScRoomCanonicalAlias mrca
+
+_StateContentMRGuestAccess :: Lens' (StateContent 'RoomGuestAccess) MRGuestAccess
+_StateContentMRGuestAccess = lens getter setter
   where
-    to = StRoomGuestAccess
-    from (StRoomGuestAccess guest) = Just guest
-    from _ = Nothing
+    getter :: StateContent 'RoomGuestAccess -> MRGuestAccess
+    getter (ScRoomGuestAccess rga) = rga
 
-_StateContentMRHistoryVisibility :: Prism' StateContent MRHistoryVisibility
-_StateContentMRHistoryVisibility = prism' to from
+    setter :: StateContent 'RoomGuestAccess -> MRGuestAccess -> StateContent 'RoomGuestAccess
+    setter _ rga = ScRoomGuestAccess rga
+
+_StateContentMRHistoryVisibility :: Lens' (StateContent 'RoomHistoryVisibility) MRHistoryVisibility
+_StateContentMRHistoryVisibility = lens getter setter
   where
-    to = StRoomHistoryVisibility
-    from (StRoomHistoryVisibility history) = Just history
-    from _ = Nothing
+    getter :: StateContent 'RoomHistoryVisibility -> MRHistoryVisibility
+    getter (ScRoomHistoryVisibility rhv) = rhv
 
-_StateContentMRName :: Prism' StateContent MRName
-_StateContentMRName = prism' to from
+    setter :: StateContent 'RoomHistoryVisibility -> MRHistoryVisibility -> StateContent 'RoomHistoryVisibility
+    setter _ rhv = ScRoomHistoryVisibility rhv
+
+_StateContentMRName :: Lens' (StateContent 'RoomName) MRName
+_StateContentMRName = lens getter setter
   where
-    to = StRoomName
-    from (StRoomName name) = Just name
-    from _ = Nothing
+    getter :: StateContent 'RoomName -> MRName
+    getter (ScRoomName rn) = rn
+    
+    setter :: StateContent 'RoomName -> MRName -> StateContent 'RoomName
+    setter _ rn = ScRoomName rn
 
-_StateContentMRTopic :: Prism' StateContent MRTopic
-_StateContentMRTopic = prism' to from
+_StateContentMRTopic :: Lens' (StateContent 'RoomTopic) MRTopic
+_StateContentMRTopic = lens getter setter
   where
-    to = StRoomTopic
-    from (StRoomTopic topic) = Just topic
-    from _ = Nothing
+    getter :: StateContent 'RoomTopic -> MRTopic
+    getter (ScRoomTopic rt) = rt
 
-_StateContentMROther :: Prism' StateContent J.Value
-_StateContentMROther = prism' to from
+    setter :: StateContent 'RoomTopic -> MRTopic -> StateContent 'RoomTopic
+    setter _ rt = ScRoomTopic rt
+
+_StateContentMROther :: Lens' (StateContent 'Other) J.Value
+_StateContentMROther = lens getter setter
   where
-    to = StOther
-    from (StOther other) = Just other
-    from _ = Nothing
+    getter :: StateContent 'Other -> J.Value
+    getter (ScOther o) = o
 
-_seContent :: Lens' StateEvent StateContent
+    setter :: StateContent 'Other -> J.Value -> StateContent 'Other
+    setter _ o = ScOther o
+
+_seContent :: Lens' (StateEvent et) (StateContent et)
 _seContent = lens getter setter
   where
     getter = seContent
     setter sec c = sec { seContent = c }
 
-_seEventId :: Lens' StateEvent EventID
+_seEventId :: Lens' (StateEvent et) EventID
 _seEventId = lens getter setter
   where
     getter = seEventId
     setter sec eid = sec { seEventId = eid }
 
-_seOriginServerTimestamp :: Lens' StateEvent Integer
+_seOriginServerTimestamp :: Lens' (StateEvent et) Integer
 _seOriginServerTimestamp = lens getter setter
   where
     getter = seOriginServerTimestamp
     setter sec ts = sec { seOriginServerTimestamp = ts }
 
-_sePreviousContent :: Lens' StateEvent (Maybe J.Value)
+_sePreviousContent :: Lens' (StateEvent et) (Maybe J.Value)
 _sePreviousContent = lens getter setter
   where
     getter = sePreviousContent
     setter sec c = sec { sePreviousContent = c }
 
-_seRoomId :: Lens' StateEvent RoomID
+_seRoomId :: Lens' (StateEvent et) RoomID
 _seRoomId = lens getter setter
   where
     getter = seRoomId
     setter sec rid = sec { seRoomId = rid }
 
-_seSender :: Lens' StateEvent UserID
+_seSender :: Lens' (StateEvent et) UserID
 _seSender = lens getter setter
   where
     getter = seSender
     setter sec uid = sec { seSender = uid }
 
-_seStateKey :: Lens' StateEvent StateKey
+_seStateKey :: Lens' (StateEvent et) StateKey
 _seStateKey = lens getter setter
   where
     getter = seStateKey
     setter sec key = sec { seStateKey = key }
 
-_seEventType :: Lens' StateEvent EventType
+_seEventType :: Lens' (StateEvent et) (EventTypeTag et)
 _seEventType = lens getter setter
   where
     getter = seEventType
     setter sec et = sec { seEventType = et }
 
-_seUnsigned :: Lens' StateEvent (Maybe J.Value)
+_seUnsigned :: Lens' (StateEvent et) (Maybe J.Value)
 _seUnsigned = lens getter setter
   where
     getter = seUnsigned

@@ -8,6 +8,12 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 -- | This module contains the client-server API
 -- https://matrix.org/docs/spec/client_server/r0.6.1
@@ -39,6 +45,7 @@ module Network.Matrix.Client
 
     -- * Room Events
     EventType (..),
+    EventTypeTag (..),
     MRCreate (..),
     MRCanonicalAlias (..),
     MRGuestAccess (..),
@@ -49,6 +56,7 @@ module Network.Matrix.Client
     StateKey (..),
     StateEvent (..),
     StateContent (..),
+    Some (..),
     getRoomEvent,
     getRoomMembers,
     getRoomState,
@@ -157,10 +165,9 @@ import qualified Network.URI as URI
 import Data.Coerce
 import Data.Bifunctor (bimap)
 import Data.List (intersperse)
-import Data.Aeson.Types (Parser)
-import Control.Applicative
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
+import Data.Foldable
 
 -- $setup
 -- >>> import Data.Aeson (decode)
@@ -273,113 +280,177 @@ newtype StateKey = StateKey T.Text
   deriving stock Show
   deriving newtype FromJSON
 
-newtype EventType = EventType T.Text
+data EventType
+  = RoomCreate
+  | RoomCanonicalAlias
+  | RoomGuestAccess
+  | RoomHistoryVisibility
+  | RoomName
+  | RoomTopic
+  | Other
   deriving stock Show
-  deriving newtype FromJSON
+
+data EventTypeTag et where
+  RoomCreateType :: EventTypeTag 'RoomCreate
+  RoomCanonicalAliasType :: EventTypeTag 'RoomCanonicalAlias
+  RoomGuestAccessType :: EventTypeTag 'RoomGuestAccess
+  RoomHistoryVisibilityType :: EventTypeTag 'RoomHistoryVisibility
+  RoomNameType :: EventTypeTag 'RoomName
+  RoomTopicType :: EventTypeTag 'RoomTopic
+  OtherType :: T.Text -> EventTypeTag 'Other
+
+class Render a where
+  render :: a -> T.Text
+
+instance Show (EventTypeTag 'RoomCreate) where
+  show _ = "RoomCreateType"
+
+instance Show (EventTypeTag 'RoomCanonicalAlias) where
+  show _ = "RoomCanonicalAliasType"
+
+instance Show (EventTypeTag 'RoomGuestAccess) where
+  show _ = "RoomGuestAccessType"
+
+instance Show (EventTypeTag 'RoomHistoryVisibility) where
+  show _ = "RoomHistoryVisibilityType"
+
+instance Show (EventTypeTag 'RoomName) where
+  show _ = "RoomNameType"
+
+instance Show (EventTypeTag 'RoomTopic) where
+  show _ = "RoomTopicType"
+
+instance Show (EventTypeTag 'Other) where
+  show (OtherType txt) = "OtherType " <> show txt
+
+instance Render (EventTypeTag 'RoomCreate) where
+  render RoomCreateType = "m.room.create"
+
+instance Render (EventTypeTag 'RoomCanonicalAlias) where
+  render RoomCanonicalAliasType = "m.room.canonical_alias"
+
+instance Render (EventTypeTag 'RoomGuestAccess) where
+  render RoomGuestAccessType = "m.room.guest_access"
+
+instance Render (EventTypeTag 'RoomHistoryVisibility) where
+  render RoomHistoryVisibilityType = "m.room.history_visibility"
+
+instance Render (EventTypeTag 'RoomName) where
+  render RoomNameType = "m.room.name"
+
+instance Render (EventTypeTag 'RoomTopic) where
+  render RoomTopicType = "m.room.topic"
+
+instance Render (EventTypeTag 'Other) where
+  render (OtherType txt) = txt
+
+instance FromJSON (EventTypeTag 'RoomCreate) where
+  parseJSON = withText "et" $ \case
+    "m.room.create" -> pure $ RoomCreateType
+    _ -> fail "Unexpected event type"
+
+instance FromJSON (EventTypeTag 'RoomCanonicalAlias) where
+  parseJSON = withText "et" $ \case
+    "m.room.canonical_alias" -> pure $ RoomCanonicalAliasType
+    _ -> fail "Unexpected event type"
+
+instance FromJSON (EventTypeTag 'RoomGuestAccess) where
+  parseJSON = withText "et" $ \case
+    "m.room.guest_access" -> pure $ RoomGuestAccessType
+    _ -> fail "Unexpected event type"
+
+instance FromJSON (EventTypeTag 'RoomHistoryVisibility) where
+  parseJSON = withText "et" $ \case
+    "m.room.history_visibility" -> pure $ RoomHistoryVisibilityType
+    _ -> fail "Unexpected event type"
+
+instance FromJSON (EventTypeTag 'RoomName) where
+  parseJSON = withText "et" $ \case
+    "m.room.name" -> pure $ RoomNameType
+    _ -> fail "Unexpected event type"
+
+instance FromJSON (EventTypeTag 'RoomTopic) where
+  parseJSON = withText "et" $ \case
+     "m.room.topic" -> pure $ RoomTopicType
+     _ -> fail "Unexpected event type"
+
+instance FromJSON (EventTypeTag 'Other) where
+  parseJSON = withText "et" (pure . OtherType)
 
 data MRCreate = MRCreate { mrcCreator :: UserID, mrcRoomVersion :: Integer }
   deriving Show
 
-instance FromJSON MRCreate where
-  parseJSON = withObject "RoomCreate" $ \o -> do
-    mrcCreator <- o .: "creator"
-    mrcRoomVersion <- o .: "room_version"
-    pure $ MRCreate {..}
-
 newtype MRName = MRName { mrnName :: T.Text }
   deriving Show
-
-instance FromJSON MRName where
-  parseJSON = withObject "RoomName" $ \o ->
-    MRName <$> (o .: "name")
 
 newtype MRCanonicalAlias = MRCanonicalAlias { mrcAlias :: T.Text }
   deriving Show
 
-instance FromJSON MRCanonicalAlias where
-  parseJSON = withObject "RoomCanonicalAlias" $ \o ->
-    MRCanonicalAlias <$> (o .: "alias")
 
 newtype MRGuestAccess = MRGuestAccess { mrGuestAccess :: T.Text }
   deriving Show
 
-instance FromJSON MRGuestAccess where
-  parseJSON = withObject "GuestAccess" $ \o ->
-    MRGuestAccess <$> (o .: "guest_access")
-
 newtype MRHistoryVisibility = MRHistoryVisibility { mrHistoryVisibility :: T.Text }
   deriving Show
-
-instance FromJSON MRHistoryVisibility where
-  parseJSON = withObject "HistoryVisibility" $ \o ->
-    MRHistoryVisibility <$> (o .: "history_visibility")
 
 newtype MRTopic = MRTopic { mrTopic :: T.Text }
   deriving Show
 
-instance FromJSON MRTopic where
+data StateContent et where
+  ScRoomCreate :: MRCreate -> StateContent 'RoomCreate
+  -- ScRoomMember :: MRMember -> StateContent 'RoomMember
+  -- ScRoomPowerLevels :: MRPowerLevels -> StateContent 'RoomPowerLevels
+  -- ScRoomJoinRules :: MRJoinRules -> StateContent 'RoomJoinRules
+  ScRoomCanonicalAlias :: MRCanonicalAlias -> StateContent 'RoomCanonicalAlias
+  ScRoomGuestAccess :: MRGuestAccess -> StateContent 'RoomGuestAccess
+  ScRoomHistoryVisibility :: MRHistoryVisibility -> StateContent 'RoomHistoryVisibility
+  ScRoomName :: MRName -> StateContent 'RoomName 
+  ScRoomTopic :: MRTopic -> StateContent 'RoomTopic
+  ScOther :: Value -> StateContent 'Other
+
+instance FromJSON (StateContent 'RoomCreate) where
+  parseJSON = withObject "RoomCreate" $ \o -> do
+    mrcCreator <- o .: "creator"
+    mrcRoomVersion <- o .: "room_version"
+    pure $ ScRoomCreate $ MRCreate {..}
+
+instance FromJSON (StateContent 'RoomCanonicalAlias) where
+  parseJSON = withObject "RoomCanonicalAlias" $ \o ->
+    ScRoomCanonicalAlias . MRCanonicalAlias <$> (o .: "alias")
+
+instance FromJSON (StateContent 'RoomGuestAccess) where
+  parseJSON = withObject "GuestAccess" $ \o ->
+    ScRoomGuestAccess . MRGuestAccess <$> (o .: "guest_access")
+
+instance FromJSON (StateContent 'RoomHistoryVisibility) where
+  parseJSON = withObject "HistoryVisibility" $ \o ->
+    ScRoomHistoryVisibility . MRHistoryVisibility <$> (o .: "history_visibility")
+
+instance FromJSON (StateContent 'RoomName) where
+  parseJSON = withObject "RoomName" $ \o ->
+    ScRoomName . MRName <$> (o .: "name")
+
+instance FromJSON (StateContent 'RoomTopic) where
   parseJSON = withObject "RoomTopic" $ \o ->
-    MRTopic <$> (o .: "topic")
-    
-data StateContent =
-    StRoomCreate MRCreate
- -- | StRoomMember MRMember
- -- | StRoomPowerLevels MRPowerLevels
- -- | StRoomJoinRules MRJoinRules
-  | StRoomCanonicalAlias MRCanonicalAlias
-  | StRoomGuestAccess MRGuestAccess
-  | StRoomHistoryVisibility MRHistoryVisibility
-  | StRoomName MRName
-  | StRoomTopic MRTopic
-  | StOther Value
- --- | StSpaceParent MRSpaceParent
-  deriving Show
+    ScRoomTopic . MRTopic <$> (o .: "topic")
 
-pStRoomCreate :: Value -> Parser StateContent
-pStRoomCreate v = StRoomCreate <$> parseJSON v
-
-pStRoomCanonicAlias :: Value -> Parser StateContent
-pStRoomCanonicAlias v = StRoomCanonicalAlias <$> parseJSON v
-
-pStRoomGuestAccess :: Value -> Parser StateContent
-pStRoomGuestAccess v = StRoomGuestAccess <$> parseJSON v
-
-pStRoomHistoryVisibility :: Value -> Parser StateContent
-pStRoomHistoryVisibility v = StRoomHistoryVisibility <$> parseJSON v
-
-pStRoomName :: Value -> Parser StateContent
-pStRoomName v = StRoomName <$> parseJSON v
-
-pStRoomTopic :: Value -> Parser StateContent
-pStRoomTopic v = StRoomTopic <$> parseJSON v
-
-pStRoomOther :: Value -> Parser StateContent
-pStRoomOther v = StOther <$> parseJSON v
-    
-instance FromJSON StateContent where
-  parseJSON v = 
-        pStRoomCreate v 
-    <|> pStRoomCanonicAlias v
-    <|> pStRoomGuestAccess v
-    <|> pStRoomHistoryVisibility v
-    <|> pStRoomName v
-    <|> pStRoomTopic v
-    <|> pStRoomOther v
+instance FromJSON (StateContent 'Other) where
+  parseJSON = pure . ScOther
 
 -- TODO(SOLOMON): Should This constructor be in 'Event'?
-data StateEvent = StateEvent
-  { seContent :: StateContent
+data StateEvent et = StateEvent
+  { seContent :: StateContent et
   , seEventId :: EventID
   , seOriginServerTimestamp :: Integer
   , sePreviousContent :: Maybe Value
   , seRoomId :: RoomID
   , seSender :: UserID
   , seStateKey :: StateKey
-  , seEventType :: EventType
+  , seEventType :: EventTypeTag et
   , seUnsigned :: Maybe Value
-  } deriving Show
+  } deriving stock Generic 
 
-instance FromJSON StateEvent where
+instance (FromJSON (StateContent et), FromJSON (EventTypeTag et)) => FromJSON (StateEvent et) where
   parseJSON = withObject "StateEvent" $ \o -> do
     seContent <- o .: "content"
     seEventId <- fmap EventID $ o .: "event_id"
@@ -394,7 +465,7 @@ instance FromJSON StateEvent where
       
 -- | Get the state events for the current state of a room.
 -- https://spec.matrix.org/v1.1/client-server-api/#get_matrixclientv3roomsroomidstate
-getRoomState :: ClientSession -> RoomID -> MatrixIO [StateEvent]
+getRoomState :: ClientSession -> RoomID -> MatrixIO [Some StateEvent]
 getRoomState session (RoomID rid) = do
   request <- mkRequest session True $ "/_matrix/client/v3/rooms/" <> rid <> "/state"
   doRequest session request
@@ -404,9 +475,10 @@ getRoomState session (RoomID rid) = do
 -- of the room. If the user has left the room then the state is taken
 -- from the state of the room when they left.
 -- https://spec.matrix.org/v1.1/client-server-api/#get_matrixclientv3roomsroomidstateeventtypestatekey
-getRoomStateEvent :: ClientSession -> RoomID -> EventType -> StateKey -> MatrixIO StateEvent
-getRoomStateEvent session (RoomID rid) (EventType et) (StateKey key) = do
-  request <- mkRequest session True $ "/_matrix/client/v3/rooms/" <> rid <> "/state" <> et <> "/" <> key
+getRoomStateEvent :: (FromJSON (EventTypeTag et), FromJSON (StateContent et), Render (EventTypeTag et)) =>
+  ClientSession -> RoomID -> (EventTypeTag et) -> StateKey -> MatrixIO (StateEvent et)
+getRoomStateEvent session (RoomID rid) et (StateKey key) = do
+  request <- mkRequest session True $ "/_matrix/client/v3/rooms/" <> rid <> "/state/" <> render et <> "/" <> key
   doRequest session request
 
 data Dir = F | B
@@ -415,15 +487,28 @@ renderDir :: Dir -> B.ByteString
 renderDir F = "f"
 renderDir B = "b"
 
+
+instance FromJSON (Some StateEvent) where
+  parseJSON val = asum [ Some <$> parseJSON @(StateEvent 'RoomCreate) val
+                       , Some <$> parseJSON @(StateEvent 'RoomCanonicalAlias) val
+                       , Some <$> parseJSON @(StateEvent 'RoomGuestAccess) val
+                       , Some <$> parseJSON @(StateEvent 'RoomHistoryVisibility) val
+                       , Some <$> parseJSON @(StateEvent 'RoomName) val
+                       , Some <$> parseJSON @(StateEvent 'RoomTopic) val
+                       , Some <$> parseJSON @(StateEvent 'Other) val
+                       ]
+
+data Some f = forall x. Some (f x) 
+
 data PaginatedRoomMessages = PaginatedRoomMessages
   { chunk :: [RoomEvent]
   , end :: Maybe T.Text
   -- ^ A token corresponding to the end of chunk. 
   , start :: T.Text
   -- ^ A token corresponding to the start of chunk.
-  , state :: [StateEvent]
+  , state :: [Some StateEvent]
   -- ^ A list of state events relevant to showing the chunk.
-  } deriving Show
+  }
 
 instance FromJSON PaginatedRoomMessages where
   parseJSON = withObject "PaginatedRoomMessages" $ \o -> do
@@ -461,9 +546,9 @@ getRoomMessages session (RoomID rid) dir roomFilter fromToken limit toToken = do
 -- | Send arbitrary state events to a room. These events will be overwritten if
 -- <room id>, <event type> and <state key> all match.
 -- https://spec.matrix.org/v1.1/client-server-api/#put_matrixclientv3roomsroomidstateeventtypestatekey
-sendRoomStateEvent :: ClientSession -> RoomID -> EventType -> StateKey -> Value -> MatrixIO EventID 
-sendRoomStateEvent session (RoomID rid) (EventType et) (StateKey key) event = do
-  request <- mkRequest session True $ "/_matrix/client/v3/rooms/" <> escapeUriComponent rid <> "/state/" <> escapeUriComponent et <> "/" <> escapeUriComponent key
+sendRoomStateEvent :: Render (EventTypeTag et) => ClientSession -> RoomID -> EventTypeTag et -> StateKey -> Value -> MatrixIO EventID 
+sendRoomStateEvent session (RoomID rid) et (StateKey key) event = do
+  request <- mkRequest session True $ "/_matrix/client/v3/rooms/" <> escapeUriComponent rid <> "/state/" <> escapeUriComponent (render et) <> "/" <> escapeUriComponent key
   doRequest session $
     request { HTTP.method = "PUT"
             , HTTP.requestBody = HTTP.RequestBodyLBS $ encode event
