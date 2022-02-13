@@ -4,6 +4,7 @@
 -- | The matrix client specification tests
 module Main (main) where
 
+import Control.Monad.Except
 import qualified Data.Aeson.Encode.Pretty as Aeson
 import qualified Data.ByteString.Lazy as BS
 import Data.Either (isLeft)
@@ -12,8 +13,8 @@ import Data.Time.Clock.System (SystemTime (..), getSystemTime)
 import Network.Matrix.Client
 import Network.Matrix.Internal
 import System.Environment (lookupEnv)
+import Test.DocTest (doctest)
 import Test.Hspec
-import Control.Monad.Except
 
 main :: IO ()
 main = do
@@ -26,7 +27,13 @@ main = do
     _ -> do
       putStrLn "Skipping integration test"
       pure $ pure mempty
-  hspec (parallel $ spec >> runIntegration)
+  hspec (parallel $ spec >> runIntegration >> docTest)
+
+docTest :: Spec
+docTest = do
+  describe "doctest" $ do
+    it "works" $ do
+      doctest ["-XOverloadedStrings", "src/"]
 
 integration :: ClientSession -> ClientSession -> Spec
 integration sess1 sess2 = do
@@ -44,7 +51,7 @@ integration sess1 sess2 = do
       case resp of
         Left err -> meError err `shouldBe` "Alias already exists"
         Right (RoomID roomID') -> roomID' `shouldSatisfy` (/= mempty)
-    it "join room" $ do 
+    it "join room" $ do
       resp <- runMatrixM sess1 $joinRoom "#test:localhost"
       case resp of
         Left err -> error (show err)
@@ -57,7 +64,7 @@ integration sess1 sess2 = do
       result <- runMatrixM sess2 $ do
         -- Flush previous events
         sr <- sync Nothing Nothing Nothing Nothing
-        [room] <- getJoinedRooms 
+        [room] <- getJoinedRooms
         let msg body = RoomMessageText $ MessageText body TextType Nothing Nothing
         let since = srNextBatch sr
         eventID <- sendMessage room (EventRoomMessage $ msg "Hello") (TxnID since)

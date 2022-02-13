@@ -86,3 +86,4 @@ test-suite unit
                     , hspec >= 2
                     , matrix-client
                     , text
+                    , doctest
