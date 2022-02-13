@@ -28,7 +28,7 @@ jobs:
           ${{ runner.os }}-${{ matrix.ghc }}-
           ${{ runner.os }}-
     - run: cabal update
-    - run: cabal build --enable-tests --flags=ci all
+    - run: cabal build --enable-tests --flags=ci all --write-ghc-environment-files=always
     - run: cabal test --enable-tests --flags=ci --test-show-details=direct all
     - run: cabal haddock all
     - run: cabal sdist all

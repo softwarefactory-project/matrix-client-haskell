@@ -1,17 +1,22 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -Wno-missing-export-lists #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | This module contains low-level HTTP utility
 module Network.Matrix.Internal where
 
 import Control.Concurrent (threadDelay)
-import Control.Exception (Exception, throw, throwIO)
-import Control.Monad (mzero, unless, void)
-import Control.Monad.Catch (Handler (Handler), MonadMask)
-import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Exception (throw, throwIO)
 import Control.Retry (RetryStatus (..))
 import qualified Control.Retry as Retry
 import Data.Aeson (FromJSON (..), FromJSONKey (..), Value (Object), encode, eitherDecode, object, withObject, (.:), (.:?), (.=))
@@ -27,11 +32,14 @@ import Network.HTTP.Types (Status (..))
 import Network.HTTP.Types.Status (statusIsSuccessful)
 import System.Environment (getEnv)
 import System.IO (stderr)
+import Control.Monad.Except
+import Control.Monad.Catch.Pure
+import Control.Monad.Reader
 
 newtype MatrixToken = MatrixToken Text
 newtype Username = Username { username :: Text }
 newtype DeviceId = DeviceId { deviceId :: Text }
-newtype InitialDeviceDisplayName = InitialDeviceDisplayName { initialDeviceDisplayName :: Text} 
+newtype InitialDeviceDisplayName = InitialDeviceDisplayName { initialDeviceDisplayName :: Text}
 data LoginSecret = Password Text | Token Text
 
 data LoginResponse = LoginResponse
@@ -72,9 +80,9 @@ throwResponseError req res chunk =
   where
     ex = HTTP.StatusCodeException (void res) (toStrict chunk)
 
-mkRequest' :: Text -> MatrixToken -> Bool -> Text -> IO HTTP.Request
-mkRequest' baseUrl (MatrixToken token) auth path = do
-  initRequest <- HTTP.parseUrlThrow (unpack $ baseUrl <> path)
+mkRequest' :: MonadIO m => Text -> MatrixToken -> Bool -> Text -> m HTTP.Request
+mkRequest' baseUrl' (MatrixToken token') auth path = do
+  initRequest <- liftIO $ HTTP.parseUrlThrow (unpack $ baseUrl' <> path)
   pure $
     initRequest
       { HTTP.requestHeaders =
@@ -83,12 +91,12 @@ mkRequest' baseUrl (MatrixToken token) auth path = do
       }
   where
     authHeaders =
-      [("Authorization", "Bearer " <> encodeUtf8 token) | auth]
+      [("Authorization", "Bearer " <> encodeUtf8 token') | auth]
 
 mkLoginRequest' :: Text -> Maybe DeviceId -> Maybe InitialDeviceDisplayName -> Username -> LoginSecret -> IO HTTP.Request
-mkLoginRequest' baseUrl did idn (Username name) secret' = do
+mkLoginRequest' baseUrl' did idn (Username name) secret' = do
   let path = "/_matrix/client/r0/login"
-  initRequest <- HTTP.parseUrlThrow (unpack $ baseUrl <> path)
+  initRequest <- HTTP.parseUrlThrow (unpack $ baseUrl' <> path)
 
   let (secretKey, secret, secretType) = case secret' of
         Password pass -> ("password", pass, "m.login.password")
@@ -105,15 +113,15 @@ mkLoginRequest' baseUrl did idn (Username name) secret' = do
   pure $ initRequest { HTTP.method = "POST", HTTP.requestBody = body, HTTP.requestHeaders = [("Content-Type", "application/json")] }
 
 mkLogoutRequest' :: Text -> MatrixToken -> IO HTTP.Request
-mkLogoutRequest' baseUrl (MatrixToken token) = do
+mkLogoutRequest' baseUrl' (MatrixToken token') = do
   let path = "/_matrix/client/r0/logout"
-  initRequest <- HTTP.parseUrlThrow (unpack $ baseUrl <> path)
-  let headers = [("Authorization", encodeUtf8 $ "Bearer " <> token)]
+  initRequest <- HTTP.parseUrlThrow (unpack $ baseUrl' <> path)
+  let headers = [("Authorization", encodeUtf8 $ "Bearer " <> token')]
   pure $ initRequest { HTTP.method = "POST", HTTP.requestHeaders = headers }
 
 doRequest' :: FromJSON a => HTTP.Manager -> HTTP.Request -> IO (Either MatrixError a)
-doRequest' manager request = do
-  response <- HTTP.httpLbs request manager
+doRequest' manager' request = do
+  response <- HTTP.httpLbs request manager'
   case decodeResp $ HTTP.responseBody response of
     Right x -> pure x
     Left e -> if statusIsSuccessful $ HTTP.responseStatus response
@@ -156,7 +164,67 @@ instance FromJSON MatrixError where
 -- | 'MatrixIO' is a convenient type alias for server response
 type MatrixIO a = MatrixM IO a
 
-type MatrixM m a = m (Either MatrixError a)
+-- | The session record, use 'createSession' to create it.
+data ClientSession = ClientSession
+  { baseUrl :: Text,
+    token :: MatrixToken,
+    manager :: HTTP.Manager
+  }
+
+-- | 'createSession' creates the session record.
+createSession ::
+  -- | The matrix client-server base url, e.g. "https://matrix.org"
+  Text ->
+  -- | The user token
+  MatrixToken ->
+  IO ClientSession
+createSession baseUrl' token' = ClientSession baseUrl' token' <$> mkManager
+
+-- | 'createSession' creates the session record.
+createSessionWithManager ::
+  -- | The matrix client-server base url, e.g. "https://matrix.org"
+  Text ->
+  -- | The user token
+  MatrixToken ->
+  -- | A 'http-client' Manager
+  HTTP.Manager ->
+  ClientSession
+createSessionWithManager = ClientSession
+
+mkRequest :: MonadIO m => Bool -> Text -> MatrixM m HTTP.Request
+mkRequest auth path = do
+  ClientSession {..} <- ask
+  liftIO $ mkRequest' baseUrl token auth path
+
+doRequest :: forall a m. (MonadIO m, FromJSON a) => HTTP.Request -> MatrixM m a
+doRequest request = do
+  ClientSession {..} <- ask
+  MatrixM $ ExceptT $ liftIO $ doRequest' manager request
+
+newtype MatrixM m a = MatrixM { unMatrixM :: ExceptT MatrixError (ReaderT ClientSession m) a }
+  deriving ( Functor
+           , Applicative
+           , Monad
+           , MonadError MatrixError
+           , MonadFail
+           , MonadIO
+           , MonadThrow
+           , MonadCatch
+           , MonadMask
+           , MonadReader ClientSession
+           ) via (ExceptT MatrixError (ReaderT ClientSession m))
+
+instance MonadTrans MatrixM where
+  lift = MatrixM . lift . lift
+
+-- | Interpret MatrixM into your inner monad. Wraps the calls that
+-- interacts with the Matrix API.
+runMatrixM :: ClientSession -> MatrixM m a -> m (Either MatrixError a)
+runMatrixM session = flip runReaderT session . runExceptT . unMatrixM
+
+-- | Run Matrix actions in 'IO'.
+runMatrixIO :: ClientSession -> MatrixIO a -> IO (Either MatrixError a)
+runMatrixIO = runMatrixM
 
 -- | Retry a network action
 retryWithLog ::
@@ -172,18 +240,16 @@ retryWithLog limit logRetry action =
   Retry.recovering
     (Retry.exponentialBackoff backoff <> Retry.limitRetries limit)
     [handler, rateLimitHandler]
-    (const checkAction)
+    (const (checkAction))
   where
-    checkAction = do
-      res <- action
-      case res of
-        Left (MatrixError "M_LIMIT_EXCEEDED" err delayMS) -> do
+    checkAction =
+      action `catchError` \case
+        MatrixError "M_LIMIT_EXCEEDED" err delayMS -> do
           -- Reponse contains a retry_after_ms
-          logRetry $ "RateLimit: " <> err <> " (delay: " <> pack (show delayMS) <> ")"
+          lift $ logRetry $ "RateLimit: " <> err <> " (delay: " <> pack (show delayMS) <> ")"
           liftIO $ threadDelay $ fromMaybe 5_000 delayMS * 1000
           throw MatrixRateLimit
-        _ -> pure res
-
+        e -> throwError e
     backoff = 1000000 -- 1sec
     rateLimitHandler _ = Handler $ \case
       MatrixRateLimit -> pure True
@@ -193,7 +259,7 @@ retryWithLog limit logRetry action =
         let url = decodeUtf8 (HTTP.host req) <> ":" <> pack (show (HTTP.port req)) <> decodeUtf8 (HTTP.path req)
             arg = decodeUtf8 $ HTTP.queryString req
             loc = if num == 0 then url <> arg else url
-        logRetry $
+        lift $ logRetry $
           "NetworkFailure: "
             <> pack (show num)
             <> "/5 "

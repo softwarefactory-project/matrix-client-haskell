@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.5.0
+
+- Replaces MatrixIO with a new mtl style API using ExceptT MatrixError and ReaderT ClientSession.
+- Adds loginToken.
+- Adds loginTokenWithManager and createSessionWithManager to support custom http Manager.
+- Replaces IdentitySession with ClientSession.
+
 ## 0.1.4.0
 
 - Completes The Room API
