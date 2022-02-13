@@ -23,10 +23,10 @@ module Network.Matrix.Client
     LoginResponse (..),
     getTokenFromEnv,
     createSession,
-    createWithSession,
-    createWithSessionIO,
+    createSessionWithManager,
     login,
     loginToken,
+    loginTokenWithManager,
     logout,
 
     -- * API
@@ -214,8 +214,13 @@ login = fmap (fmap fst) . loginToken
 -- | 'loginToken' allows you to generate a session token and recover the Matrix auth token.
 loginToken :: LoginCredentials -> IO (Either MatrixError (ClientSession, MatrixToken))
 loginToken cred = do
-  req <- mkLoginRequest cred
   manager <- mkManager
+  loginTokenWithManager manager cred
+
+-- | 'loginTokenWithManager' allows you to generate a session token with a custom http manager and recover the Matrix auth token.
+loginTokenWithManager :: HTTP.Manager -> LoginCredentials -> IO (Either MatrixError (ClientSession, MatrixToken))
+loginTokenWithManager manager cred = do
+  req <- mkLoginRequest cred
   resp <- doRequest' manager req
   pure $ case resp of
     Left e -> Left e
@@ -242,28 +247,16 @@ createSession ::
   IO ClientSession
 createSession baseUrl' token' = ClientSession baseUrl' token' <$> mkManager
 
-createWithSession ::
-  MonadIO m =>
+-- | 'createSession' creates the session record.
+createSessionWithManager ::
   -- | The matrix client-server base url, e.g. "https://matrix.org"
   T.Text ->
   -- | The user token
   MatrixToken ->
-  -- | The matrix action to perform
-  MatrixM m a ->
-  m (Either MatrixError a)
-createWithSession baseUrl' token' action = do
-  session <- liftIO $ createSession baseUrl' token'
-  runMatrixM session action
-
-createWithSessionIO ::
-  -- | The matrix client-server base url, e.g. "https://matrix.org"
-  T.Text ->
-  -- | The user token
-  MatrixToken ->
-  -- | The matrix action to perform
-  MatrixIO a ->
-  IO (Either MatrixError a)
-createWithSessionIO = createWithSession
+  -- | A 'http-client' Manager
+  HTTP.Manager ->
+  ClientSession
+createSessionWithManager = ClientSession
 
 mkRequest :: MonadIO m => Bool -> T.Text -> MatrixM m HTTP.Request
 mkRequest auth path = do
