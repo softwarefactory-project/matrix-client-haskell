@@ -47,37 +47,42 @@ where
 --   > Prelude Netowrk.Matrix.Client> :set prompt "> "
 --   > > :set -XOverloadedStrings
 --   > > :type getTokenOwner
---   > getTokenOwner :: ClientSession -> MatrixIO WhoAmI
+--   > getTokenOwner :: MatrixIO UserID
 
 -- $session
---   Most functions require 'Network.Matrix.Client.ClientSession' which carries the
---   endpoint url and the http client manager.
---
---   The only way to get the client is through the 'Network.Matrix.Client.createSession' function:
+--   Most functions operates in the 'MatrixIO' context, and to get their output you need to use
+--   the 'runMatrixIO' helper. This helper expects a 'ClientSession' that can be created with
+--   'Network.Matrix.Client.createSession':
 --
 --   > > token <- getTokenFromEnv "MATRIX_TOKEN"
---   > > sess <- createSession "https://matrix.org" token
---   > > getTokenOwner sess
---   > Right (WhoAmI "@tristanc_:matrix.org")
+--   > > session <- createSession "https://matrix.org" token
+--   > > runMatrixIO session getTokenOwner
+--   > Right (UserID "@tristanc_:matrix.org")
+--
+--   For the purpose of this tutorial, we can create a `withSession` wrapper:
+--
+--   > > let withSession = runMatrixIO session :: MatrixIO a -> IO (Either MatrixError a)
+--   > > withSession getTokenOwner
+--   > Right (UserID "@tristanc_:matrix.org")
 
 -- $sync
 --   Create a filter to limit the sync result using the 'Network.Matrix.Client.createFilter' function.
 --   To keep room message only, use the 'Network.Matrix.Client.messageFilter' default filter:
 --
---   > > Right userId <- getTokenOwner sess
---   > > Right filterId <- createFilter sess userId messageFilter
---   > > getFilter sess (UserID "@gerritbot:matrix.org") filterId
+--   > > Right userId <- withSession getTokenOwner
+--   > > Right filterId <- withSession (createFilter userId messageFilter)
+--   > > withSession (getFilter userId filterId)
 --   > Right (Filter {filterEventFields = ...})
 --
 --   Call the 'Network.Matrix.Client.sync' function to synchronize your client state:
 --
---   > > Right syncResult <- sync sess (Just filterId) Nothing (Just Online) Nothing
+--   > > Right syncResult <- withSession (sync (Just filterId) Nothing (Just Online) Nothing)
 --   > > putStrLn $ take 512 $ show (getTimelines syncResult)
 --   > SyncResult {srNextBatch = ...}
 --
 --   Get next batch with a 300 second timeout using the @since@ argument:
 --
---   > > Right syncResult' <- sync sess (Just filterId) (Just (srNextBatch syncResult)) (Just Online) (Just 300000)
+--   > > Right syncResult' <- withSession (sync (Just filterId) (Just (srNextBatch syncResult)) (Just Online) (Just 300000))
 --
 --   Here are some helpers function to format the messages from sync results, copy them in your REPL:
 --
@@ -96,7 +101,7 @@ where
 --   Use the 'Network.Matrix.Client.syncPoll' utility function to continuously get events,
 --   here is an example to print new messages, similar to a @tail -f@ process:
 --
---   > > syncPoll sess (Just filterId) (Just (srNextBatch syncResult)) (Just Online) printTimelines
+--   > > withSession (syncPoll (Just filterId) (Just (srNextBatch syncResult)) (Just Online) printTimelines)
 --   > room1| test-user: Hello world!
 --   > ...
 

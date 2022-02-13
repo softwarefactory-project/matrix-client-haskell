@@ -192,7 +192,7 @@ runMatrixM :: ClientSession -> MatrixM m a -> m (Either MatrixError a)
 runMatrixM session = flip runReaderT session . runExceptT . unMatrixM
 
 -- | Run Matrix actions in 'IO'.
-runMatrixIO :: ClientSession -> MatrixM IO a -> IO (Either MatrixError a)
+runMatrixIO :: ClientSession -> MatrixIO a -> IO (Either MatrixError a)
 runMatrixIO = runMatrixM
 
 -- | Retry a network action
