@@ -1,6 +1,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -Wno-missing-export-lists #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -38,7 +39,7 @@ import Control.Monad.Reader
 newtype MatrixToken = MatrixToken Text
 newtype Username = Username { username :: Text }
 newtype DeviceId = DeviceId { deviceId :: Text }
-newtype InitialDeviceDisplayName = InitialDeviceDisplayName { initialDeviceDisplayName :: Text} 
+newtype InitialDeviceDisplayName = InitialDeviceDisplayName { initialDeviceDisplayName :: Text}
 data LoginSecret = Password Text | Token Text
 
 data LoginResponse = LoginResponse
@@ -170,6 +171,36 @@ data ClientSession = ClientSession
     manager :: HTTP.Manager
   }
 
+-- | 'createSession' creates the session record.
+createSession ::
+  -- | The matrix client-server base url, e.g. "https://matrix.org"
+  Text ->
+  -- | The user token
+  MatrixToken ->
+  IO ClientSession
+createSession baseUrl' token' = ClientSession baseUrl' token' <$> mkManager
+
+-- | 'createSession' creates the session record.
+createSessionWithManager ::
+  -- | The matrix client-server base url, e.g. "https://matrix.org"
+  Text ->
+  -- | The user token
+  MatrixToken ->
+  -- | A 'http-client' Manager
+  HTTP.Manager ->
+  ClientSession
+createSessionWithManager = ClientSession
+
+mkRequest :: MonadIO m => Bool -> Text -> MatrixM m HTTP.Request
+mkRequest auth path = do
+  ClientSession {..} <- ask
+  liftIO $ mkRequest' baseUrl token auth path
+
+doRequest :: forall a m. (MonadIO m, FromJSON a) => HTTP.Request -> MatrixM m a
+doRequest request = do
+  ClientSession {..} <- ask
+  MatrixM $ ExceptT $ liftIO $ doRequest' manager request
+
 newtype MatrixM m a = MatrixM { unMatrixM :: ExceptT MatrixError (ReaderT ClientSession m) a }
   deriving ( Functor
            , Applicative
@@ -206,7 +237,7 @@ retryWithLog ::
   MatrixM m a ->
   MatrixM m a
 retryWithLog limit logRetry action =
-  Retry.recovering 
+  Retry.recovering
     (Retry.exponentialBackoff backoff <> Retry.limitRetries limit)
     [handler, rateLimitHandler]
     (const (checkAction))

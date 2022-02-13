@@ -8,10 +8,10 @@
 -- https://matrix.org/docs/spec/identity_service/r0.3.0.html
 module Network.Matrix.Identity
   ( -- * Client
-    IdentitySession,
     MatrixToken (..),
     getTokenFromEnv,
-    createIdentitySession,
+    createSession,
+    createSessionWithManager,
 
     -- * API
     MatrixIO,
@@ -51,40 +51,16 @@ import Data.Text.Encoding (encodeUtf8)
 import Data.Text.Lazy (toStrict)
 import qualified Network.HTTP.Client as HTTP
 import Network.Matrix.Internal
-import Control.Monad.IO.Class
 import Control.Monad.Except
-import Control.Monad.Reader
 
 -- $setup
 -- >>> import Data.Aeson (decode)
 
--- | The session record, use 'createSession' to create it.
-data IdentitySession = IdentitySession
-  { baseUrl :: Text,
-    token :: MatrixToken,
-    manager :: HTTP.Manager
-  }
-
--- | 'createSession' creates the session record.
-createIdentitySession ::
-  -- | The matrix identity base url, e.g. "https://matrix.org"
-  Text ->
-  -- | The user identity token
-  MatrixToken ->
-  IO IdentitySession
-createIdentitySession baseUrl' token' = IdentitySession baseUrl' token' <$> mkManager
-
-mkRequest :: IdentitySession -> Bool -> Text -> IO HTTP.Request
-mkRequest IdentitySession {..} = mkRequest' baseUrl token
-
-doRequest :: forall a. FromJSON a => IdentitySession -> HTTP.Request -> MatrixIO a
-doRequest IdentitySession {..} request = MatrixM . ExceptT $ ReaderT (const $ doRequest' @a manager request)
-
 -- | 'getIdentityTokenOwner' gets information about the owner of a given access token.
-getIdentityTokenOwner :: IdentitySession -> MatrixIO UserID
-getIdentityTokenOwner session = do
-  request <- liftIO $ mkRequest session True "/_matrix/identity/v2/account"
-  doRequest session request
+getIdentityTokenOwner :: MatrixIO UserID
+getIdentityTokenOwner = do
+  request <- mkRequest True "/_matrix/identity/v2/account"
+  doRequest request
 
 data HashDetails = HashDetails
   { hdAlgorithms :: NonEmpty Text,
@@ -96,15 +72,15 @@ instance FromJSON HashDetails where
   parseJSON (Object v) = HashDetails <$> v .: "algorithms" <*> v .: "lookup_pepper"
   parseJSON _ = mzero
 
-hashDetails :: IdentitySession -> MatrixIO HashDetails
-hashDetails session = do
-  request <- liftIO $ mkRequest session True "/_matrix/identity/v2/hash_details"
-  doRequest session request 
+hashDetails :: MatrixIO HashDetails
+hashDetails = do
+  request <- mkRequest True "/_matrix/identity/v2/hash_details"
+  doRequest request
 
 -- | Use 'identityLookup' to lookup a single identity, otherwise uses the full 'identitiesLookup'.
-identityLookup :: IdentitySession -> HashDetails -> Identity -> MatrixIO (Maybe UserID)
-identityLookup session hd ident = do
-  userId <- identitiesLookup session ilr
+identityLookup :: HashDetails -> Identity -> MatrixIO (Maybe UserID)
+identityLookup hd ident = do
+  userId <- identitiesLookup ilr
   pure $ toUserIDM userId
   where
     toUserIDM = lookupIdentity address
@@ -138,11 +114,10 @@ instance FromJSON IdentityLookupResponse where
       toTuple _ = Nothing
   parseJSON _ = mzero
 
-identitiesLookup :: IdentitySession -> IdentityLookupRequest -> MatrixIO IdentityLookupResponse
-identitiesLookup session ilr = do
-  request <- liftIO $ mkRequest session True "/_matrix/identity/v2/lookup"
+identitiesLookup :: IdentityLookupRequest -> MatrixIO IdentityLookupResponse
+identitiesLookup ilr = do
+  request <- mkRequest True "/_matrix/identity/v2/lookup"
   doRequest
-    session
     ( request
         { HTTP.method = "POST",
           HTTP.requestBody = HTTP.RequestBodyLBS body

@@ -115,7 +115,7 @@ where
 --
 --  > > import Network.Matrix.Identity
 --  > > tokenId <- getTokenFromEnv "MATRIX_IDENTITY_TOKEN"
---  > > sessId <- createIdentitySession "https://matrix.org" tokenId
---  > > Right hd <- hashDetails sessId
---  > > identityLookup sessId hd (Email "tdecacqu@redhat.com")
+--  > > sessionId <- createSession "https://matrix.org" tokenId
+--  > > Right hd <- runMatrixIO sessionId hashDetails
+--  > > runMatrixIO sessionId (identityLookup hd (Email "tdecacqu@redhat.com"))
 --  > Right (Just (UserID "@tristanc_:matrix.org"))

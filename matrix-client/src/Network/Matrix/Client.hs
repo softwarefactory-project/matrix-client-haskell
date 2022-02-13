@@ -141,7 +141,7 @@ where
 
 import Control.Applicative (Alternative ((<|>)))
 import Control.Monad.Catch (MonadMask)
-import Control.Monad.Except (ExceptT (ExceptT), throwError)
+import Control.Monad.Except (throwError)
 import Control.Monad.Reader
 import Data.Aeson (FromJSON (..), ToJSON (..), Value (Object, String), encode, genericParseJSON, genericToJSON, object, withObject, withText, (.:), (.:?), (.=))
 import qualified Data.Aeson as Aeson
@@ -171,16 +171,19 @@ import Network.Matrix.Internal
     LoginSecret (..),
     MatrixError (..),
     MatrixIO,
-    MatrixM (MatrixM),
+    MatrixM,
     MatrixToken (..),
     UserID (..),
     Username (..),
+    createSession,
+    createSessionWithManager,
+    doRequest,
     doRequest',
     getTokenFromEnv,
     mkLoginRequest',
     mkLogoutRequest',
     mkManager,
-    mkRequest',
+    mkRequest,
     retry,
     retryWithLog,
     runMatrixIO,
@@ -237,36 +240,6 @@ logout session = do
   req <- liftIO $ mkLogoutRequest session
   void $ doRequest @Value req
   pure ()
-
--- | 'createSession' creates the session record.
-createSession ::
-  -- | The matrix client-server base url, e.g. "https://matrix.org"
-  T.Text ->
-  -- | The user token
-  MatrixToken ->
-  IO ClientSession
-createSession baseUrl' token' = ClientSession baseUrl' token' <$> mkManager
-
--- | 'createSession' creates the session record.
-createSessionWithManager ::
-  -- | The matrix client-server base url, e.g. "https://matrix.org"
-  T.Text ->
-  -- | The user token
-  MatrixToken ->
-  -- | A 'http-client' Manager
-  HTTP.Manager ->
-  ClientSession
-createSessionWithManager = ClientSession
-
-mkRequest :: MonadIO m => Bool -> T.Text -> MatrixM m HTTP.Request
-mkRequest auth path = do
-  ClientSession {..} <- ask
-  liftIO $ mkRequest' baseUrl token auth path
-
-doRequest :: forall a m. (MonadIO m, FromJSON a) => HTTP.Request -> MatrixM m a
-doRequest request = do
-  ClientSession {..} <- ask
-  MatrixM $ ExceptT $ liftIO $ doRequest' manager request
 
 -- | 'getTokenOwner' gets information about the owner of a given access token.
 getTokenOwner :: MatrixIO UserID
