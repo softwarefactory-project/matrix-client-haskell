@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
@@ -40,6 +41,9 @@ import Data.Aeson (FromJSON (..), Value (Object, String), encode, object, (.:), 
 import Data.ByteString.Lazy (fromStrict)
 import Data.ByteString.Lazy.Base64.URL (encodeBase64Unpadded)
 import Data.Digest.Pure.SHA (bytestringDigest, sha256)
+#if MIN_VERSION_aeson(2,0,0)
+import qualified Data.Aeson.KeyMap as KeyMap
+#endif
 import qualified Data.HashMap.Strict as HM
 import Data.List (lookup)
 import Data.List.NonEmpty (NonEmpty)
@@ -49,6 +53,14 @@ import Data.Text.Encoding (encodeUtf8)
 import Data.Text.Lazy (toStrict)
 import qualified Network.HTTP.Client as HTTP
 import Network.Matrix.Internal
+
+#if MIN_VERSION_aeson(2,0,0)
+toKVList :: KeyMap.KeyMap v -> [(Text, v)]
+toKVList = HM.toList . KeyMap.toHashMapText
+#else
+toKVList :: HM.HashMap Text v -> [(Text, v)]
+toKVList = HM.toList
+#endif
 
 -- $setup
 -- >>> import Data.Aeson (decode)
@@ -123,7 +135,7 @@ instance FromJSON IdentityLookupResponse where
   parseJSON (Object v) = do
     mappings <- v .: "mappings"
     case mappings of
-      (Object kv) -> pure . IdentityLookupResponse $ mapMaybe toTuple (HM.toList kv)
+      (Object kv) -> pure . IdentityLookupResponse $ mapMaybe toTuple (toKVList kv)
       _ -> mzero
     where
       toTuple (k, String s) = Just (HashedAddress k, UserID s)
