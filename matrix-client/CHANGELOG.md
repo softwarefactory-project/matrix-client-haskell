@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4.1
+
+- Support aeson-2.0
+
 ## 0.1.4.0
 
 - Completes The Room API
