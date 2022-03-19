@@ -58,7 +58,7 @@ common lib-depends
                      , http-types             >= 0.10.0   && < 0.13
                      , network-uri
                      , profunctors
-                     , retry                  ^>= 0.8
+                     , retry                  >= 0.8      && < 0.10
                      , text                   >= 0.11.1.0 && < 1.3
                      , time
                      , unordered-containers
