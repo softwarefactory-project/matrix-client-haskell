@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4.2
+
+- Support retry-0.9
+
 ## 0.1.4.1
 
 - Support aeson-2.0
