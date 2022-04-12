@@ -43,7 +43,6 @@ runMatrixBot session MatrixBot{..} = do
         >>= dieOnLeft "Could not determine own MXID"
     initialSyncToken <- retry (getInitialSyncToken session userID)
         >>= dieOnLeft "Could not retrieve saved sync token"
-    liftIO $ print initialSyncToken
     runMatrixBotT session userID initialSyncToken $ do
         r <- initializeBotEnv
         forever $ syncLoop (botRouter r) >>= logOnLeft "Error while syncing"
