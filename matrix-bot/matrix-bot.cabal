@@ -53,8 +53,8 @@ library
                     , stm ^>= 2.5.0
                     , stm-chans ^>= 3.0.0
                     , text ^>= 1.2.4
+                    , thread-supervisor ^>= 0.2.0
                     , transformers ^>= 0.5.6
-                    , resourcet ^>= 1.2.4
                     , unliftio-core ^>= 0.2.0
     hs-source-dirs:   src
     exposed-modules:  MatrixBot.Main

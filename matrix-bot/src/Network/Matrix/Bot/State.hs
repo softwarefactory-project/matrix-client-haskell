@@ -21,9 +21,6 @@ import           Control.Monad.Trans.Reader
                      , local
                      , runReaderT
                      )
-import           Control.Monad.Trans.Resource.Internal
-                     ( ResourceT(ResourceT, unResourceT)
-                     )
 import           Control.Monad.Trans.State             ( StateT )
 import           Control.Monad.Trans.Writer            ( WriterT )
 import qualified Data.Text                             as T
@@ -48,8 +45,6 @@ class (Monad m) => MonadMatrixBot m where
                         => m (Maybe T.Text)
     syncedSince = lift syncedSince
 
-instance MonadMatrixBot m => MonadMatrixBot (ResourceT m)
-
 instance MonadMatrixBot m => MonadMatrixBot (ReaderT r m)
 
 instance MonadMatrixBot m => MonadMatrixBot (StateT s m)
@@ -64,11 +59,6 @@ class (MonadMatrixBot m) => MonadResyncableMatrixBot m where
         -> m a
         -> m a
     withSyncStartedAt syncToken = hoist $ withSyncStartedAt syncToken
-
-instance MonadResyncableMatrixBot m
-    => MonadResyncableMatrixBot (ResourceT m) where
-    withSyncStartedAt syncToken = ResourceT . (withSyncStartedAt syncToken .)
-        . unResourceT
 
 instance MonadResyncableMatrixBot m => MonadResyncableMatrixBot (ReaderT r m)
 

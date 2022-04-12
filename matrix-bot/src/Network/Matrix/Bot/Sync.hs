@@ -86,7 +86,6 @@ syncLoop (BotEventRouter mkIRS router) = do
                 retry (saveSyncToken $ srNextBatch sr)
                     >>= logOnLeft "Could not save sync token"
                 runRouterT router sr
-                gcSyncGroups
 
 saveSyncToken :: (MonadMatrixBot m, MonadIO m) => T.Text -> MatrixM m ()
 saveSyncToken token = do

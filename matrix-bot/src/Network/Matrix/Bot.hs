@@ -16,7 +16,6 @@ module Network.Matrix.Bot
     ) where
 
 import           Control.Monad                    ( forever )
-import           Control.Monad.IO.Class           ( liftIO )
 import           Network.Matrix.Client
 
 import           Network.Matrix.Bot.Async
