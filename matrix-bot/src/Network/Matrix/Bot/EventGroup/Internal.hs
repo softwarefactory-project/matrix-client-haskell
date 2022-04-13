@@ -1,15 +1,11 @@
-module Network.Matrix.Bot.Async.Internal
+module Network.Matrix.Bot.EventGroup.Internal
     ( AsyncHandler
     , asyncHandler
-    , syncGroupHandler
-    , SyncGroup
-    , SyncGroupCall
-    , syncCall
-    , asyncGroupCall
-    , syncGroupCall
-    , MonadSyncGroupManager(..)
-    , SyncGroupManagerT
-    , runSyncGroupManager
+    , groupHandler
+    , EventGroup(..)
+    , MonadEventGroupManager(..)
+    , EventGroupManagerT
+    , runEventGroupManager
     ) where
 
 import           Control.Concurrent.Async
@@ -17,7 +13,7 @@ import           Control.Concurrent.Async
                      , withAsync
                      )
 import           Control.Concurrent.MVar          ( MVar, putMVar )
-import           Control.Concurrent.Supervisor (Actor(Actor), Inbox, SupervisorQueue, newActor, newSimpleOneForOneSupervisor, ActorQ, newBoundedActor, Restart(Permanent, Transient), newChild, newChildSpec, receive, send)
+import           Control.Concurrent.Supervisor (Actor(Actor), Inbox, SupervisorQueue, newActor, newSimpleOneForOneSupervisor, ActorQ, newBoundedActor, Restart(Permanent, Transient), newChild, newChildSpec, receive)
 import Control.Concurrent.SupervisorInternal (InboxLength(InboxLength), CallTimeout(CallTimeout))
 import           Control.Monad.Catch
                      ( MonadCatch
@@ -26,7 +22,6 @@ import           Control.Monad.Catch
                      , SomeException
                      , catch
                      , fromException
-                     , try
                      )
 import           Control.Monad.IO.Class           ( MonadIO, liftIO )
 import           Control.Monad.IO.Unlift
@@ -47,64 +42,60 @@ import qualified Data.Text                        as T
 import           Network.Matrix.Bot.ErrorHandling
 import           Network.Matrix.Bot.State
 
-newtype SyncGroup a = SyncGroup (ActorQ (a, T.Text, Maybe (MVar ())))
-
-data SyncGroupCall m where
-    AsyncGroupCall :: SyncGroup a -> a -> Maybe (MVar ()) -> SyncGroupCall m
-    SyncCall :: (a -> m ()) -> a -> SyncGroupCall m
+newtype EventGroup a = EventGroup (ActorQ (a, T.Text, Maybe (MVar ())))
 
 data AsyncHandler m a =
     AsyncHandler { asyncHandlerHandler :: Inbox (a, T.Text, Maybe (MVar ())) -> m ()
                  , asyncHandlerRestart :: Restart
                  }
 
-class (MonadMatrixBot m) => MonadSyncGroupManager m where
-    newSyncGroup :: (forall n.
+class (MonadMatrixBot m) => MonadEventGroupManager m where
+    newEventGroup :: (forall n.
                      (MonadMatrixBotBase n, MonadResyncableMatrixBot n)
                      => AsyncHandler n a)
-                 -> m (SyncGroup a)
-    default newSyncGroup
-        :: (m ~ m1 m2, MonadTrans m1, MonadSyncGroupManager m2)
+                 -> m (EventGroup a)
+    default newEventGroup
+        :: (m ~ m1 m2, MonadTrans m1, MonadEventGroupManager m2)
         => (forall n.
             (MonadMatrixBotBase n, MonadResyncableMatrixBot n)
             => AsyncHandler n a)
-        -> m (SyncGroup a)
-    newSyncGroup a = lift $ newSyncGroup a
+        -> m (EventGroup a)
+    newEventGroup a = lift $ newEventGroup a
 
-instance (MonadSyncGroupManager m) => MonadSyncGroupManager (StateT s m)
+instance (MonadEventGroupManager m) => MonadEventGroupManager (StateT s m)
 
-newtype SyncGroupManagerT m a =
-    SyncGroupManagerT (ReaderT SupervisorQueue m a)
+newtype EventGroupManagerT m a =
+    EventGroupManagerT (ReaderT SupervisorQueue m a)
     deriving ( Functor, Applicative, Monad, MonadIO, MonadThrow, MonadCatch
              , MonadMask, MonadTrans, MonadFail )
 
-runSyncGroupManager :: (MonadUnliftIO m) => SyncGroupManagerT m a -> m a
-runSyncGroupManager (SyncGroupManagerT a) = do
+runEventGroupManager :: (MonadUnliftIO m) => EventGroupManagerT m a -> m a
+runEventGroupManager (EventGroupManagerT a) = do
   Actor svQ svA <- liftIO $ newActor newSimpleOneForOneSupervisor
   withRunInIO $ \runInIO ->
     withAsync svA $ const $ runInIO $ runReaderT a svQ
 
 instance MonadResyncableMatrixBot m
-    => MonadResyncableMatrixBot (SyncGroupManagerT m) where
-    withSyncStartedAt st (SyncGroupManagerT a) =
-        SyncGroupManagerT $ withSyncStartedAt st a
+    => MonadResyncableMatrixBot (EventGroupManagerT m) where
+    withSyncStartedAt st (EventGroupManagerT a) =
+        EventGroupManagerT $ withSyncStartedAt st a
 
-instance MonadMatrixBot m => MonadMatrixBot (SyncGroupManagerT m)
+instance MonadMatrixBot m => MonadMatrixBot (EventGroupManagerT m)
 
 instance (MonadMatrixBotBase m, MonadResyncableMatrixBot m, MonadUnliftIO m)
-    => MonadSyncGroupManager (SyncGroupManagerT m) where
-    newSyncGroup (AsyncHandler handler restart) = do
+    => MonadEventGroupManager (EventGroupManagerT m) where
+    newEventGroup (AsyncHandler handler restart) = do
       Actor aQ aA <- lift $ withRunInIO $ \runInIO -> newBoundedActor (InboxLength 20) $ runInIO . handler
-      svQ <- SyncGroupManagerT ask
+      svQ <- EventGroupManagerT ask
       -- Should never return Nothing, because the timeout is endless.
       _ <- liftIO $ newChild (CallTimeout $ -1) svQ $ newChildSpec restart aA
-      pure $ SyncGroup aQ
+      pure $ EventGroup aQ
 
-syncGroupHandler :: (MonadMatrixBotBase m, MonadResyncableMatrixBot m)
-                 => m s
-                 -> (s -> a -> m s)
-                 -> AsyncHandler m a
-syncGroupHandler mkS handler =
+groupHandler :: (MonadMatrixBotBase m, MonadResyncableMatrixBot m)
+             => m s
+             -> (s -> a -> m s)
+             -> AsyncHandler m a
+groupHandler mkS handler =
   AsyncHandler
     { asyncHandlerHandler = \inbox -> do
         lastSeenSyncTokenRef <- syncedSince >>= liftIO . newIORef
@@ -168,19 +159,3 @@ asyncHandler handle = AsyncHandler
 signalDone :: (MonadIO m) => Maybe (MVar ()) -> m ()
 signalDone Nothing = pure ()
 signalDone (Just done) = liftIO $ putMVar done ()
-
-syncCall :: (a -> m ()) -> a -> SyncGroupCall m
-syncCall = SyncCall
-
-asyncGroupCall :: SyncGroup a -> a -> Maybe (MVar ()) -> SyncGroupCall m
-asyncGroupCall = AsyncGroupCall
-
-syncGroupCall :: (MonadMatrixBotBase m) => T.Text -> SyncGroupCall m -> m ()
-syncGroupCall _syncToken (SyncCall f x) = do
-    result <- try $ f x
-    case result of
-        Left e -> logStderr $ "Sync handler threw an unexpected exception: "
-            ++ show (e :: SomeException)
-        Right () -> pure ()
-syncGroupCall syncToken (AsyncGroupCall (SyncGroup chan) x done) =
-    liftIO $ send chan (x, syncToken, done)

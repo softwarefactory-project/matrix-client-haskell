@@ -59,12 +59,12 @@ library
     hs-source-dirs:   src
     exposed-modules:  MatrixBot.Main
                     , Network.Matrix.Bot
-                    , Network.Matrix.Bot.Async
                     , Network.Matrix.Bot.Event
+                    , Network.Matrix.Bot.EventGroup
                     , Network.Matrix.Bot.Router
-    other-modules:    Network.Matrix.Bot.Async.Internal
-                    , Network.Matrix.Bot.ErrorHandling
+    other-modules:    Network.Matrix.Bot.ErrorHandling
                     , Network.Matrix.Bot.Event.Internal
+                    , Network.Matrix.Bot.EventGroup.Internal
                     , Network.Matrix.Bot.JSON
                     , Network.Matrix.Bot.Router.Internal
                     , Network.Matrix.Bot.State

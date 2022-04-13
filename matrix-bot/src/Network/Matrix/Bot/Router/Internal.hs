@@ -6,24 +6,30 @@ module Network.Matrix.Bot.Router.Internal
     , customRouter
     ) where
 
+import Control.Concurrent.MVar (MVar)
+import Control.Concurrent.Supervisor (send)
 import           Control.Monad.Catch               ( MonadCatch
                                                    , MonadMask
                                                    , MonadThrow
+                                                   , SomeException
+                                                   , try
                                                    )
-import           Control.Monad.IO.Class            ( MonadIO )
+import           Control.Monad.IO.Class            ( MonadIO, liftIO )
 import           Control.Monad.Trans.Class         ( MonadTrans, lift )
 import           Control.Monad.Trans.State         ( StateT, get, put )
 import           Control.Monad.Trans.Writer.Lazy   ( WriterT
                                                    , runWriterT
                                                    , tell
                                                    )
+import qualified Data.Text as T
 import           Network.Matrix.Client             ( SyncResult(SyncResult, srNextBatch) )
 
-import           Network.Matrix.Bot.Async.Internal
+import Network.Matrix.Bot.ErrorHandling
 import           Network.Matrix.Bot.Event.Internal
+import           Network.Matrix.Bot.EventGroup.Internal
 import           Network.Matrix.Bot.State
 
-class (MonadSyncGroupManager m) => MonadEventRouter m where
+class (MonadEventGroupManager m) => MonadEventRouter m where
     routeSyncEvent :: (forall n.
                        (MonadMatrixBotBase n, MonadResyncableMatrixBot n)
                        => a
@@ -40,13 +46,13 @@ class (MonadSyncGroupManager m) => MonadEventRouter m where
         -> m ()
     routeSyncEvent f = lift . routeSyncEvent f
 
-    routeSyncGroupEvent :: SyncGroup a -> a -> m ()
-    default routeSyncGroupEvent
+    routeGroupEvent :: EventGroup a -> a -> m ()
+    default routeGroupEvent
         :: (m ~ m1 m2, MonadTrans m1, MonadEventRouter m2)
-        => SyncGroup a
+        => EventGroup a
         -> a
         -> m ()
-    routeSyncGroupEvent g = lift . routeSyncGroupEvent g
+    routeGroupEvent g = lift . routeGroupEvent g
 
 routeAsyncEvent :: (MonadEventRouter m)
                 => (forall n.
@@ -56,8 +62,8 @@ routeAsyncEvent :: (MonadEventRouter m)
                 -> a
                 -> m ()
 routeAsyncEvent handle e = do
-    syncGroup <- newSyncGroup $ asyncHandler handle
-    routeSyncGroupEvent syncGroup e
+    syncGroup <- newEventGroup $ asyncHandler handle
+    routeGroupEvent syncGroup e
 
 -- | An event router with state @s@ and acces to an environment @r@
 -- that is executed on top of the monad @m@.
@@ -66,7 +72,21 @@ data BotEventRouter m = forall s. BotEventRouter
     , berDoRoute :: s -> BotEvent -> RouterT m s
     }
 
-newtype RouterT m a = RouterT { unRouterM :: WriterT [SyncGroupCall m] m a }
+data EventDispatch m where
+    GroupDispatch :: EventGroup a -> a -> Maybe (MVar ()) -> EventDispatch m
+    SyncDispatch :: (a -> m ()) -> a -> EventDispatch m
+
+dispatchEvent :: (MonadMatrixBotBase m) => T.Text -> EventDispatch m -> m ()
+dispatchEvent _syncToken (SyncDispatch f x) = do
+    result <- try $ f x
+    case result of
+        Left e -> logStderr $ "Sync handler threw an unexpected exception: "
+            ++ show (e :: SomeException)
+        Right () -> pure ()
+dispatchEvent syncToken (GroupDispatch (EventGroup chan) x done) =
+    liftIO $ send chan (x, syncToken, done)
+
+newtype RouterT m a = RouterT { unRouterM :: WriterT [EventDispatch m] m a }
     deriving ( Functor, Applicative, Monad, MonadIO, MonadThrow, MonadCatch
              , MonadMask )
 
@@ -80,16 +100,16 @@ instance (MonadResyncableMatrixBot m)
     withSyncStartedAt syncToken =
         RouterT . withSyncStartedAt syncToken . unRouterM
 
-instance (MonadSyncGroupManager m) => MonadSyncGroupManager (RouterT m)
+instance (MonadEventGroupManager m) => MonadEventGroupManager (RouterT m)
 
 instance ( MonadMatrixBotBase m
          , MonadResyncableMatrixBot m
-         , MonadSyncGroupManager m
+         , MonadEventGroupManager m
          ) => MonadEventRouter (RouterT m) where
-    routeSyncEvent f x = RouterT $ tell [ syncCall f x ]
+    routeSyncEvent f x = RouterT $ tell [ SyncDispatch f x ]
 
-    routeSyncGroupEvent group x =
-        RouterT $ tell [ asyncGroupCall group x Nothing ]
+    routeGroupEvent group x =
+        RouterT $ tell [ GroupDispatch group x Nothing ]
 
 runRouterT :: (MonadMatrixBotBase m)
            => (s -> BotEvent -> RouterT m s)
@@ -102,18 +122,18 @@ runRouterT router sr@SyncResult{srNextBatch} =
         s <- get
         (s', cs) <- lift $ runWriterT (unRouterM $ router s e)
         put s'
-        mapM_ (lift . syncGroupCall srNextBatch) cs
+        mapM_ (lift . dispatchEvent srNextBatch) cs
 
 customRouter
     :: ( MonadMatrixBotBase m
        , MonadResyncableMatrixBot m
-       , MonadSyncGroupManager m
+       , MonadEventGroupManager m
        )
     => m s
     -> (forall n.
         ( MonadMatrixBotBase n
         , MonadResyncableMatrixBot n
-        , MonadSyncGroupManager n
+        , MonadEventGroupManager n
         , MonadEventRouter n
         )
         => s

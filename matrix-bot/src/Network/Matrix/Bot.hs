@@ -18,9 +18,9 @@ module Network.Matrix.Bot
 import           Control.Monad                    ( forever )
 import           Network.Matrix.Client
 
-import           Network.Matrix.Bot.Async
 import           Network.Matrix.Bot.ErrorHandling
 import           Network.Matrix.Bot.Event
+import           Network.Matrix.Bot.EventGroup
 import           Network.Matrix.Bot.Router
 import           Network.Matrix.Bot.State
 import           Network.Matrix.Bot.Sync
@@ -30,7 +30,7 @@ data MatrixBot = forall r. MatrixBot
     , botRouter        :: forall m.
                        ( MonadMatrixBotBase m
                        , MonadResyncableMatrixBot m
-                       , MonadSyncGroupManager m
+                       , MonadEventGroupManager m
                        )
                        => r
                        -> BotEventRouter m

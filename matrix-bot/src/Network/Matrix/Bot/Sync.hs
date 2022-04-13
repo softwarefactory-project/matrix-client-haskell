@@ -33,8 +33,8 @@ import           Network.Matrix.Client
                      , syncPoll
                      )
 
-import           Network.Matrix.Bot.Async.Internal
 import           Network.Matrix.Bot.ErrorHandling
+import           Network.Matrix.Bot.EventGroup.Internal
 import           Network.Matrix.Bot.JSON
 import           Network.Matrix.Bot.Router.Internal
 import           Network.Matrix.Bot.State
@@ -68,7 +68,7 @@ syncLoop :: (MonadMatrixBotBase m, MonadUnliftIO m, MonadResyncableMatrixBot m)
          => (forall n.
              ( MonadMatrixBotBase n
              , MonadResyncableMatrixBot n
-             , MonadSyncGroupManager n
+             , MonadEventGroupManager n
              )
              => BotEventRouter n)
          -> MatrixM m ()
@@ -78,7 +78,7 @@ syncLoop (BotEventRouter mkIRS router) = do
     initialSyncToken <- syncedSince
     filterID <- liftIO (retry $ createFilter session userID mkFilter)
         >>= dieOnLeft "Could not create filter"
-    runSyncGroupManager $ do
+    runEventGroupManager $ do
         initialRouterState <- mkIRS
         flip evalStateT initialRouterState $
             syncPoll session (Just filterID) initialSyncToken Nothing $
