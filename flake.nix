@@ -6,7 +6,8 @@
   nixConfig.bash-prompt = "[nix]λ ";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs";
+    nixpkgs.url =
+      "github:NixOS/nixpkgs/00d73d5385b63e868bd11282fb775f6fe4921fb5";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
@@ -14,7 +15,7 @@
     flake-utils.lib.eachSystem [ "x86_64-linux" ] (system:
       let
         config = { };
-        compilerVersion = "8107";
+        compilerVersion = "924";
         compiler = "ghc" + compilerVersion;
         overlays = [
           (final: prev: {
