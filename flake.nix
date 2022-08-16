@@ -34,31 +34,44 @@
           })
         ];
         pkgs = import nixpkgs { inherit config overlays system; };
-        dendriteHome = "/tmp/dendrite-home";
+        conduitHome = "/tmp/conduit-home";
 
-        # A script to start a local matrix server with dendrite
-        dendriteStart = pkgs.writeScriptBin "dendrite-start" ''
+        conduitConfig = pkgs.writeTextFile {
+          name = "conduit.toml";
+          text = ''
+            [global]
+            server_name = "localhost"
+            database_path = "${conduitHome}"
+            database_backend = "rocksdb"
+            port = 6167
+            max_request_size = 20_000_000
+            allow_registration = true
+            allow_federation = false
+            trusted_servers = []
+            #log = "info,state_res=warn,rocket=off,_=off,sled=off"
+            address = "127.0.0.1"
+          '';
+        };
+
+        # A script to start a local matrix server with conduit
+        conduitStart = pkgs.writeScriptBin "conduit-start" ''
           #!/bin/sh -e
-          mkdir -p ${dendriteHome}
-          cd ${dendriteHome}
-          if ! test -f dendrite.yaml; then
-             ${pkgs.dendrite}/bin/generate-config > dendrite.yaml
-             sed -e 's|/var/log/dendrite|${dendriteHome}/logs|' -i dendrite.yaml
-          fi
-          if ! test -f matrix_key.pem; then
-             ${pkgs.dendrite}/bin/generate-keys -private-key matrix_key.pem -tls-cert test.crt -tls-key test.key
-          fi
-          ${pkgs.dendrite}/bin/dendrite-monolith-server
+          mkdir -p ${conduitHome}
+          exec env CONDUIT_CONFIG=${conduitConfig} ${pkgs.matrix-conduit}/bin/conduit
         '';
 
         # A script to setup test environment
-        dendriteSetup = pkgs.writeScriptBin "dendrite-setup" ''
+        conduitSetup = pkgs.writeScriptBin "conduit-setup" ''
           #!/bin/sh -e
-          cd ${dendriteHome}
-          HOMESERVER_URL=http://localhost:8008
+          HOMESERVER_URL=http://localhost:6167
+          export PATH=$PATH:${pkgs.jq}/bin:${pkgs.curl}/bin
           create_token () {
-            ${pkgs.dendrite}/bin/create-account -username $1 -password $2 || true
-            ${pkgs.curl}/bin/curl -XPOST $HOMESERVER_URL/_matrix/client/r0/login -d '{"user": "'$1'", "password": "'$2'", "type": "m.login.password"}' | ${pkgs.jq}/bin/jq -r ".access_token"
+            REGISTER_TOKEN=$(curl -XPOST $HOMESERVER_URL/_matrix/client/v3/register -d '{"auth":{"type": "m.login.dummy"}, "username": "'$1'", "password": "'$2'"}' | jq -r ".access_token")
+            if [ "$REGISTER_TOKEN" != "null" ]; then
+                echo $REGISTER_TOKEN
+            else
+                curl -XPOST $HOMESERVER_URL/_matrix/client/v3/login -d '{"type": "m.login.password", "identifier": {"type": "m.id.user", "user": "'$1'"}, "password": "'$2'"}' | jq -r ".access_token"
+            fi
           }
           echo HOMESERVER_URL=$HOMESERVER_URL
           echo PRIMARY_TOKEN=$(create_token "test-user" "test-pass")
@@ -88,8 +101,8 @@
             pkgs.haskell-language-server
             pkgs.ghcid
             testScript
-            dendriteStart
-            dendriteSetup
+            conduitStart
+            conduitSetup
           ];
 
           withHoogle = false;

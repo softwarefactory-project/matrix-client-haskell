@@ -43,9 +43,9 @@ Some tests requires a local matrix server, run integration service:
 
 ```ShellSession
 # In another terminal:
-$ nix develop -c dendrite-start
+$ nix develop -c conduit-start
 # Before running cabal test:
-$ export $(nix develop -c dendrite-setup)
+$ export $(nix develop -c conduit-setup)
 $ cabal test all
 ```
 

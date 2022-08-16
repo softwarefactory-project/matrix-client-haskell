@@ -10,7 +10,7 @@
 -- > git clone https://github.com/matrix-org/dendrite
 -- > cd dendrite; ./build.sh; ./bin/generate-keys --private-key matrix_key.pem; cp dendrite-config.yaml dendrite.yaml
 -- > ./bin/dendrite-monolith-server --config dendrite.yaml
--- > curl -XPOST http://localhost:8008/_matrix/client/r0/register -d'{"username": "tristanC", "password": "supersecret", "auth": {"type": "mlogin.dummy"}}
+-- > curl -XPOST http://localhost:8008/_matrix/client/r0/register -d'{"username": "tristanC", "password": "supersecret", "auth": {"type": "m.login.dummy"}}'
 --
 -- To avoid manipulating the token directly, put it in your environment:
 --
