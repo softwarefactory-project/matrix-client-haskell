@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4.3
+
+- Add missing export for Dir.
+
 ## 0.1.4.2
 
 - Support retry-0.9

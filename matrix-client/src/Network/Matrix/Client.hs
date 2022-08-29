@@ -39,6 +39,7 @@ module Network.Matrix.Client
     getTokenOwner,
 
     -- * Room Events
+    Dir (..),
     EventType (..),
     MRCreate (..),
     MRCanonicalAlias (..),
@@ -414,7 +415,11 @@ getRoomStateEvent session (RoomID rid) (EventType et) (StateKey key) = do
   request <- mkRequest session True $ "/_matrix/client/v3/rooms/" <> rid <> "/state" <> et <> "/" <> key
   doRequest session request
 
-data Dir = F | B
+data Dir
+  = -- | Forward
+    F
+  | -- | Backward
+    B
 
 renderDir :: Dir -> B.ByteString
 renderDir F = "f"
