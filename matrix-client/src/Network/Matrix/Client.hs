@@ -39,6 +39,7 @@ module Network.Matrix.Client
     getTokenOwner,
 
     -- * Room Events
+    Dir (..),
     EventType (..),
     MRCreate (..),
     MRCanonicalAlias (..),
