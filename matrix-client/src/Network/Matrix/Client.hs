@@ -249,12 +249,12 @@ getRoomEvent session (RoomID rid) (EventID eid) = do
   request <- mkRequest session True $ "/_matrix/client/v3/rooms/" <> rid <> "/event/" <> eid
   doRequest session request
 
-data User = User { userDisplayName :: T.Text, userAvatarUrl :: Maybe T.Text }
+data User = User { userDisplayName :: Maybe T.Text, userAvatarUrl :: Maybe T.Text }
   deriving Show
 
 instance FromJSON User where
   parseJSON = withObject "User" $ \o -> do
-    userDisplayName <- o .: "display_name"
+    userDisplayName <- o .:? "display_name"
     userAvatarUrl <- o .:? "avatar_url"
     pure $ User {..}
 
