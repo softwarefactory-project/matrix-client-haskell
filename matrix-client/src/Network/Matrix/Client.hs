@@ -529,7 +529,7 @@ createRoom session rcr = do
       Right crr -> case (crrID crr, crrMessage crr) of
         (Just roomID, _) -> pure $ RoomID roomID
         (_, Just message) -> Left $ MatrixError "UNKNOWN" message Nothing
-        _ -> Left $ MatrixError "UNKOWN" "" Nothing
+        _ -> Left $ MatrixError "UNKNOWN" "" Nothing
 
 newtype RoomAlias = RoomAlias T.Text deriving (Show, Eq, Ord, Hashable)
 
