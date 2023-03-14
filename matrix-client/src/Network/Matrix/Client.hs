@@ -200,9 +200,9 @@ mkLogoutRequest ClientSession {..} = mkLogoutRequest' baseUrl token
 
 -- | 'logout' allows you to destroy a session token.
 logout :: ClientSession -> MatrixIO ()
-logout session@ClientSession {..} = do
+logout session = do
   req <- mkLogoutRequest session
-  fmap (() <$) $ doRequest' @Value manager req
+  doRequestExpectEmptyResponse session "logout" req
 
 -- | The session record, use 'createSession' to create it.
 data ClientSession = ClientSession
@@ -571,17 +571,17 @@ resolveRoomAlias session r@(RoomAlias alias) = do
 setRoomAlias :: ClientSession -> RoomAlias -> RoomID -> MatrixIO ()
 setRoomAlias session (RoomAlias alias) (RoomID roomId)= do
   request <- mkRequest session True $ "/_matrix/client/v3/directory/room/" <> escapeUriComponent alias
-  doRequest
-    session $
+  doRequestExpectEmptyResponse session "set room alias" $
       request { HTTP.method = "PUT"
               , HTTP.requestBody = HTTP.RequestBodyLBS $ encode $ object [("room_id" .= roomId)]
               }
+
 -- | Delete a mapping of room alias to room ID.
 -- https://spec.matrix.org/v1.1/client-server-api/#delete_matrixclientv3directoryroomroomalias
 deleteRoomAlias :: ClientSession -> RoomAlias -> MatrixIO ()
 deleteRoomAlias session (RoomAlias alias) = do
   request <- mkRequest session True $ "/_matrix/client/v3/directory/room/" <> escapeUriComponent alias
-  doRequest session $ request { HTTP.method = "DELETE" }
+  doRequestExpectEmptyResponse session "delete room alias" $ request { HTTP.method = "DELETE" }
 
 data ResolvedAliases = ResolvedAliases [RoomAlias]
 
@@ -674,25 +674,14 @@ knockOnRoom session room servers reason = do
 forgetRoom :: ClientSession -> RoomID -> MatrixIO ()
 forgetRoom session (RoomID roomId) = do
   request <- mkRequest session True $ "/_matrix/client/v3/rooms/" <> roomId <> "/forget"
-  fmap ensureEmptyObject <$> doRequest session (request {HTTP.method = "POST"})
-  where
-    ensureEmptyObject :: Value -> ()
-    ensureEmptyObject value = case value of
-      Object xs | xs == mempty -> ()
-      _anyOther -> error $ "Unknown forget response: " <> show value
-     
+  doRequestExpectEmptyResponse session "forget" (request {HTTP.method = "POST"})
 
 -- | Stop participating in a particular room.
 -- https://spec.matrix.org/v1.1/client-server-api/#post_matrixclientv3roomsroomidleave
 leaveRoomById :: ClientSession -> RoomID -> MatrixIO ()
 leaveRoomById session (RoomID roomId) = do
   request <- mkRequest session True $ "/_matrix/client/r0/rooms/" <> roomId <> "/leave"
-  fmap ensureEmptyObject <$> doRequest session (request {HTTP.method = "POST"})
-  where
-    ensureEmptyObject :: Value -> ()
-    ensureEmptyObject value = case value of
-      Object xs | xs == mempty -> ()
-      _anyOther -> error $ "Unknown leave response: " <> show value
+  doRequestExpectEmptyResponse session "leave" (request {HTTP.method = "POST"})
 
 -- | Kick a user from the room.
 -- https://spec.matrix.org/v1.1/client-server-api/#post_matrixclientv3roomsroomidkick
@@ -700,15 +689,10 @@ kickUser :: ClientSession -> RoomID -> UserID -> Maybe T.Text -> MatrixIO ()
 kickUser session (RoomID roomId) (UserID uid) reason = do
   request <- mkRequest session True $ "/_matrix/client/v3/rooms/" <> roomId <> "/kick"
   let body = object $ [("user_id", toJSON uid)] <> catMaybes [fmap (("reason",) . toJSON) reason]
-  fmap (fmap ensureEmptyObject) $ doRequest session $
+  doRequestExpectEmptyResponse session "kick" $
       request { HTTP.method = "POST"
               , HTTP.requestBody = HTTP.RequestBodyLBS $ encode body
               }
-  where
-    ensureEmptyObject :: Value -> ()
-    ensureEmptyObject value = case value of
-      Object xs | xs == mempty -> ()
-      _anyOther -> error $ "Unknown leave response: " <> show value
 
 -- | Ban a user in the room. If the user is currently in the room, also kick them.
 -- https://spec.matrix.org/v1.1/client-server-api/#post_matrixclientv3roomsroomidban
@@ -716,15 +700,10 @@ banUser :: ClientSession -> RoomID -> UserID -> Maybe T.Text -> MatrixIO ()
 banUser session (RoomID roomId) (UserID uid) reason = do
   request <- mkRequest session True $ "/_matrix/client/v3/rooms/" <> roomId <> "/ban"
   let body = object $ [("user_id", toJSON uid)] <> catMaybes [fmap (("reason",) . toJSON) reason]
-  fmap (fmap ensureEmptyObject) $ doRequest session $
+  doRequestExpectEmptyResponse session "ban" $
       request { HTTP.method = "POST"
               , HTTP.requestBody = HTTP.RequestBodyLBS $ encode body
               }
-  where
-    ensureEmptyObject :: Value -> ()
-    ensureEmptyObject value = case value of
-      Object xs | xs == mempty -> ()
-      _anyOther -> error $ "Unknown leave response: " <> show value
 
 -- | Unban a user from the room. This allows them to be invited to the
 -- room, and join if they would otherwise be allowed to join according
@@ -734,15 +713,10 @@ unbanUser :: ClientSession -> RoomID -> UserID -> Maybe T.Text -> MatrixIO ()
 unbanUser session (RoomID roomId) (UserID uid) reason = do
   request <- mkRequest session True $ "/_matrix/client/v3/rooms/" <> roomId <> "/unban"
   let body = object $ [("user_id", toJSON uid)] <> catMaybes [fmap (("reason",) . toJSON) reason]
-  fmap (fmap ensureEmptyObject) $ doRequest session $
+  doRequestExpectEmptyResponse session "unban" $
       request { HTTP.method = "POST"
               , HTTP.requestBody = HTTP.RequestBodyLBS $ encode body
               }
-  where
-    ensureEmptyObject :: Value -> ()
-    ensureEmptyObject value = case value of
-      Object xs | xs == mempty -> ()
-      _anyOther -> error $ "Unknown leave response: " <> show value
 
 data Visibility = Public | Private
   deriving (Show)
@@ -778,15 +752,10 @@ setRoomVisibility :: ClientSession -> RoomID -> Visibility -> MatrixIO ()
 setRoomVisibility session (RoomID rid) visibility = do
   request <- mkRequest session True $ "/_matrix/client/v3/directory/list/room/" <> rid
   let body = object $ [("visibility", toJSON visibility)]
-  fmap (fmap ensureEmptyObject) $ doRequest session $
+  doRequestExpectEmptyResponse session "set room visibility" $
       request { HTTP.method = "PUT"
               , HTTP.requestBody = HTTP.RequestBodyLBS $ encode body
               }
-  where
-    ensureEmptyObject :: Value -> ()
-    ensureEmptyObject value = case value of
-      Object xs | xs == mempty -> ()
-      _anyOther -> error $ "Unknown setRoomVisibility response: " <> show value
 
 -- | A pagination token from a previous request, allowing clients to
 -- get the next (or previous) batch of rooms. The direction of
@@ -1313,11 +1282,10 @@ getAccountData' session userID t =
 setAccountData' :: (ToJSON a) => ClientSession -> UserID -> T.Text -> a -> MatrixIO ()
 setAccountData' session userID t value = do
   request <- mkRequest session True $ accountDataPath userID t
-  void <$> (doRequest session $ request
+  doRequestExpectEmptyResponse session "set account data" $ request
              { HTTP.method = "PUT"
              , HTTP.requestBody = HTTP.RequestBodyLBS $ encode value
-             } :: MatrixIO Aeson.Object
-           )
+             }
 
 accountDataPath :: UserID -> T.Text -> T.Text
 accountDataPath (UserID userID) t =
@@ -1355,6 +1323,7 @@ tshow = T.pack . show
 
 escapeUriComponent :: T.Text -> T.Text
 escapeUriComponent = T.pack . URI.escapeURIString URI.isUnreserved . T.unpack
+
 
 ensureEmptyObject :: String -> Value -> ()
 ensureEmptyObject apiName value = case value of
