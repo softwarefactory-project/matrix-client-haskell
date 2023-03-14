@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.5.0
+
+- Convert userDisplayName into a Maybe value [#30](https://github.com/softwarefactory-project/matrix-client-haskell/issues/30)
+- Improve empty response handling [#32](https://github.com/softwarefactory-project/matrix-client-haskell/issues/32)
+
 ## 0.1.4.3
 
 - Add missing export for Dir.
