@@ -26,7 +26,7 @@ main = do
     _ -> do
       putStrLn "Skipping integration test"
       pure $ pure mempty
-  hspec (parallel $ spec >> runIntegration)
+  hspec (parallel spec >> runIntegration)
 
 integration :: ClientSession -> ClientSession -> Spec
 integration sess1 sess2 = do
@@ -44,20 +44,20 @@ integration sess1 sess2 = do
           )
       case resp of
         Left err -> meError err `shouldBe` "Alias already exists"
-        Right (RoomID roomID) -> roomID `shouldSatisfy` (/= mempty)
+        Right (RoomID room) -> room `shouldSatisfy` (/= mempty)
     it "join room" $ do
       resp <- joinRoom sess1 "#test:localhost"
       case resp of
         Left err -> error (show err)
-        Right (RoomID roomID) -> roomID `shouldSatisfy` (/= mempty)
+        Right (RoomID room) -> room `shouldSatisfy` (/= mempty)
       resp' <- joinRoom sess2 "#test:localhost"
       case resp' of
         Left err -> error (show err)
-        Right (RoomID roomID) -> roomID `shouldSatisfy` (/= mempty)
+        Right (RoomID room) -> room `shouldSatisfy` (/= mempty)
     it "send message and reply" $ do
       -- Flush previous events
       Right sr <- sync sess2 Nothing Nothing Nothing Nothing
-      Right [room] <- getJoinedRooms sess1
+      Right (room:_) <- getJoinedRooms sess1
       let msg body = RoomMessageText $ MessageText body TextType Nothing Nothing
       let since = srNextBatch sr
       Right eventID <- sendMessage sess1 room (EventRoomMessage $ msg "Hello") (TxnID since)
@@ -112,10 +112,10 @@ spec = describe "unit tests" $ do
     rateLimitSelector :: MatrixException -> Bool
     rateLimitSelector MatrixRateLimit = True
     checkPause op action = do
-      MkSystemTime start _ <- getSystemTime
+      MkSystemTime startTS _ <- getSystemTime
       void action
-      MkSystemTime end _ <- getSystemTime
-      (end - start) `shouldSatisfy` (`op` 1)
+      MkSystemTime endTS _ <- getSystemTime
+      (endTS - startTS) `shouldSatisfy` (`op` 1)
     encodePretty =
       Aeson.encodePretty'
         ( Aeson.defConfig {Aeson.confIndent = Aeson.Spaces 0, Aeson.confCompare = compare @Text}
