@@ -226,8 +226,15 @@ mkRequest ClientSession {..} = mkRequest' baseUrl token
 doRequest :: FromJSON a => ClientSession -> HTTP.Request -> MatrixIO a
 doRequest ClientSession {..} = doRequest' manager
 
+-- | Same as 'doRequest' but expect an empty JSON response @{}@
+-- which is converted to an empty Haskell tuple @()@.
 doRequestExpectEmptyResponse :: ClientSession -> String -> HTTP.Request -> MatrixIO ()
-doRequestExpectEmptyResponse sess apiName request = fmap (ensureEmptyObject apiName) <$> doRequest sess request
+doRequestExpectEmptyResponse sess apiName request = fmap ensureEmptyObject <$> doRequest sess request
+  where
+    ensureEmptyObject :: Value -> ()
+    ensureEmptyObject value = case value of
+      Object xs | xs == mempty -> ()
+      _ -> error $ "Unknown " <> apiName <> " response: " <> show value
 
 -- | 'getTokenOwner' gets information about the owner of a given access token.
 getTokenOwner :: ClientSession -> MatrixIO UserID
@@ -1323,9 +1330,3 @@ tshow = T.pack . show
 
 escapeUriComponent :: T.Text -> T.Text
 escapeUriComponent = T.pack . URI.escapeURIString URI.isUnreserved . T.unpack
-
-
-ensureEmptyObject :: String -> Value -> ()
-ensureEmptyObject apiName value = case value of
-  Object xs | xs == mempty -> ()
-  _ -> error $ "Unknown " <> apiName <> " response: " <> show value
