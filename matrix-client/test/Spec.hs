@@ -64,6 +64,12 @@ integration sess1 sess2 = do
       Right reply <- sendMessage sess2 room (EventRoomReply eventID $ msg "Hi!") (TxnID since)
       reply `shouldNotBe` eventID
 
+    it "invite private room" $ do
+      Right room <- createRoom sess1 $ RoomCreateRequest PrivateChat "private" "private-test" "A test"
+      Right user <- getTokenOwner sess2
+      Right inviteResult <- inviteToRoom sess1 room user (Just "Welcome!")
+      inviteResult `shouldBe` ()
+
 spec :: Spec
 spec = describe "unit tests" $ do
   it "decode unknown" $
