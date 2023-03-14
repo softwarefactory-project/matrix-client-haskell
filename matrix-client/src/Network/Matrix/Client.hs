@@ -631,10 +631,10 @@ inviteToRoom :: ClientSession -> RoomID -> UserID -> Maybe T.Text -> MatrixIO ()
 inviteToRoom session (RoomID rid) (UserID uid) reason = do
   request <- mkRequest session True $ "/_matrix/client/v3/rooms/" <> rid <> "/invite"
   let body = object $ [("user_id", toJSON uid)] <> catMaybes [fmap (("reason",) . toJSON) reason]
-  doRequest session $
+  fmap (ensureEmptyObject "invite") <$> (doRequest session $
       request { HTTP.method = "POST"
               , HTTP.requestBody = HTTP.RequestBodyLBS $ encode body
-              }
+              })
 
 -- | Note that this API takes either a room ID or alias, unlike 'joinRoomById'
 -- https://spec.matrix.org/v1.1/client-server-api/#post_matrixclientv3joinroomidoralias
@@ -1352,3 +1352,8 @@ tshow = T.pack . show
 
 escapeUriComponent :: T.Text -> T.Text
 escapeUriComponent = T.pack . URI.escapeURIString URI.isUnreserved . T.unpack
+
+ensureEmptyObject :: String -> Value -> ()
+ensureEmptyObject apiName value = case value of
+  Object xs | xs == mempty -> ()
+  _ -> error $ "Unknown " <> apiName <> " response: " <> show value
