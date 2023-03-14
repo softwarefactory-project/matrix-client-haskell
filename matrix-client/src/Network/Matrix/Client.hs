@@ -226,6 +226,9 @@ mkRequest ClientSession {..} = mkRequest' baseUrl token
 doRequest :: FromJSON a => ClientSession -> HTTP.Request -> MatrixIO a
 doRequest ClientSession {..} = doRequest' manager
 
+doRequestExpectEmptyResponse :: ClientSession -> String -> HTTP.Request -> MatrixIO ()
+doRequestExpectEmptyResponse sess apiName request = fmap (ensureEmptyObject apiName) <$> doRequest sess request
+
 -- | 'getTokenOwner' gets information about the owner of a given access token.
 getTokenOwner :: ClientSession -> MatrixIO UserID
 getTokenOwner session =
@@ -631,10 +634,10 @@ inviteToRoom :: ClientSession -> RoomID -> UserID -> Maybe T.Text -> MatrixIO ()
 inviteToRoom session (RoomID rid) (UserID uid) reason = do
   request <- mkRequest session True $ "/_matrix/client/v3/rooms/" <> rid <> "/invite"
   let body = object $ [("user_id", toJSON uid)] <> catMaybes [fmap (("reason",) . toJSON) reason]
-  fmap (ensureEmptyObject "invite") <$> (doRequest session $
+  doRequestExpectEmptyResponse session "invite" $
       request { HTTP.method = "POST"
               , HTTP.requestBody = HTTP.RequestBodyLBS $ encode body
-              })
+              }
 
 -- | Note that this API takes either a room ID or alias, unlike 'joinRoomById'
 -- https://spec.matrix.org/v1.1/client-server-api/#post_matrixclientv3joinroomidoralias
