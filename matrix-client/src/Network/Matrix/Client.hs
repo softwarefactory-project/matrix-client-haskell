@@ -137,7 +137,7 @@ module Network.Matrix.Client
   )
 where
 
-import Control.Monad (mzero, void)
+import Control.Monad (mzero)
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Data.Aeson (FromJSON (..), ToJSON (..), Value (Object, String), encode, genericParseJSON, genericToJSON, object, withObject, withText, (.:), (.:?), (.=))
 import qualified Data.Aeson as Aeson
