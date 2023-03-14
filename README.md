@@ -49,4 +49,6 @@ $ export $(nix develop -c conduit-setup)
 $ cabal test all
 ```
 
+Restart the commands to run the test on a fresh environment.
+
 If you experience any difficulties, please don't hesistate to raise an issue.

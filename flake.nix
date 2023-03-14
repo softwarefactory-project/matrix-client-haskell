@@ -56,6 +56,7 @@
         # A script to start a local matrix server with conduit
         conduitStart = pkgs.writeScriptBin "conduit-start" ''
           #!/bin/sh -e
+          rm -Rf ${conduitHome}
           mkdir -p ${conduitHome}
           exec env CONDUIT_CONFIG=${conduitConfig} ${pkgs.matrix-conduit}/bin/conduit
         '';
