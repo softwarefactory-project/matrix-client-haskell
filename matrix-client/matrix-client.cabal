@@ -31,7 +31,7 @@ source-repository head
 common common-options
   build-depends:       base                   >= 4.11.0.0 && < 5
                      , aeson-casing           >= 0.2.0.0  && < 0.3.0.0
-                     , aeson                  >= 1.0.0.0  && < 2.1
+                     , aeson                  >= 1.0.0.0  && < 3
   ghc-options:         -Wall
                        -Wcompat
                        -Widentities
@@ -59,7 +59,7 @@ common lib-depends
                      , network-uri
                      , profunctors
                      , retry                  >= 0.8      && < 0.10
-                     , text                   >= 0.11.1.0 && < 1.3
+                     , text                   >= 0.11.1.0 && < 3
                      , time
                      , unordered-containers
 
