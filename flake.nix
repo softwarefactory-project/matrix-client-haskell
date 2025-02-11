@@ -19,6 +19,7 @@
           (final: prev: {
             myHaskellPackages = prev.haskellPackages.override {
               overrides = hpFinal: hpPrev: {
+                base64 = hpPrev.base64_1_0;
                 matrix-client =
                   hpPrev.callCabal2nix "matrix-client" ./matrix-client/. { };
                 matrix-bot =

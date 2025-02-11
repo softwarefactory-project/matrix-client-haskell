@@ -38,8 +38,9 @@ where
 
 import Control.Monad (mzero)
 import Data.Aeson (FromJSON (..), Value (Object, String), encode, object, (.:), (.=))
+import Data.Base64.Types (extractBase64)
 import Data.ByteString.Lazy (fromStrict)
-import Data.ByteString.Lazy.Base64.URL (encodeBase64Unpadded)
+import Data.ByteString.Lazy.Base64.URL (encodeBase64)
 import Data.Digest.Pure.SHA (bytestringDigest, sha256)
 #if MIN_VERSION_aeson(2,0,0)
 import qualified Data.Aeson.KeyMap as KeyMap
@@ -166,7 +167,7 @@ identitiesLookup session ilr = do
 -- >>> encodeSHA256 "alice@example.com email matrixrocks"
 -- "4kenr7N9drpCJ4AfalmlGQVsOn3o2RHjkADUpXJWZUc"
 encodeSHA256 :: Text -> Text
-encodeSHA256 = toStrict . encodeBase64Unpadded . bytestringDigest . sha256 . fromStrict . encodeUtf8
+encodeSHA256 = toStrict . extractBase64 . encodeBase64 . bytestringDigest . sha256 . fromStrict . encodeUtf8
 
 data Identity = Email Text | Msisdn Text deriving (Show, Eq)
 
