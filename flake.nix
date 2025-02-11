@@ -7,7 +7,7 @@
 
   inputs = {
     nixpkgs.url =
-      "github:NixOS/nixpkgs/00d73d5385b63e868bd11282fb775f6fe4921fb5";
+      "github:NixOS/nixpkgs/d3780c92e64472e8f9aa54f7bbb0dd4483b98303";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
@@ -15,15 +15,9 @@
     flake-utils.lib.eachSystem [ "x86_64-linux" ] (system:
       let
         config = { };
-        compilerVersion = "924";
-        compiler = "ghc" + compilerVersion;
         overlays = [
           (final: prev: {
-            haskell-language-server = prev.haskell-language-server.override {
-              supportedGhcVersions = [ compilerVersion ];
-            };
-
-            myHaskellPackages = prev.haskell.packages.${compiler}.override {
+            myHaskellPackages = prev.haskellPackages.override {
               overrides = hpFinal: hpPrev: {
                 matrix-client =
                   hpPrev.callCabal2nix "matrix-client" ./matrix-client/. { };
