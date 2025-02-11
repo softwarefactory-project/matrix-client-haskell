@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.6.0
+
+- Support base64-1.0
+
 ## 0.1.5.0
 
 - Convert userDisplayName into a Maybe value [#30](https://github.com/softwarefactory-project/matrix-client-haskell/issues/30)
