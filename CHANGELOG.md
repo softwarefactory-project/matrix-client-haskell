@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.6.1
+
+- Use Unpadded base64 encoding, as it was done in v0.1.5.0
+
 ## 0.1.6.0
 
 - Support base64-1.0
