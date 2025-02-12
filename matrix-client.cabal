@@ -1,87 +1,100 @@
-cabal-version:       2.4
-name:                matrix-client
-version:             0.1.6.0
-synopsis:            A matrix client library
+cabal-version: 2.4
+name: matrix-client
+version: 0.1.6.0
+synopsis: A matrix client library
 description:
-    Matrix client is a library to interface with https://matrix.org.
-    .
-    Use this library to interact with matrix server.
-    .
-    Read the "Network.Matrix.Tutorial" for a detailed tutorial.
-    .
-    Please see the README at https://github.com/softwarefactory-project/matrix-client-haskell#readme
-    .
-homepage:            https://github.com/softwarefactory-project/matrix-client-haskell#readme
-bug-reports:         https://github.com/softwarefactory-project/matrix-client-haskell/issues
-license:             Apache-2.0
-license-file:        LICENSE
-author:              Tristan de Cacqueray
-maintainer:          tdecacqu@redhat.com
-copyright:           2021 Red Hat
-category:            Network
-build-type:          Simple
-extra-doc-files:     CHANGELOG.md
-extra-source-files:  test/data/*.json
-tested-with:         GHC == 9.6.6
+  Matrix client is a library to interface with https://matrix.org.
+  .
+  Use this library to interact with matrix server.
+  .
+  Read the "Network.Matrix.Tutorial" for a detailed tutorial.
+  .
+  Please see the README at https://github.com/softwarefactory-project/matrix-client-haskell#readme
+  .
+
+homepage: https://github.com/softwarefactory-project/matrix-client-haskell#readme
+bug-reports: https://github.com/softwarefactory-project/matrix-client-haskell/issues
+license: Apache-2.0
+license-file: LICENSE
+author: Tristan de Cacqueray
+maintainer: tdecacqu@redhat.com
+copyright: 2021 Red Hat
+category: Network
+build-type: Simple
+extra-doc-files: CHANGELOG.md
+extra-source-files: test/data/*.json
+tested-with: ghc ==9.6.6
 
 source-repository head
-  type:                git
-  location:            https://github.com/softwarefactory-project/matrix-client-haskell.git
+  type: git
+  location: https://github.com/softwarefactory-project/matrix-client-haskell.git
 
 common common-options
-  build-depends:       base                   >= 4.11.0.0 && < 5
-                     , aeson-casing           >= 0.2.0.0  && < 0.3.0.0
-                     , aeson                  >= 1.0.0.0  && < 3
-  ghc-options:         -Wall
-                       -Wcompat
-                       -Widentities
-                       -Wincomplete-uni-patterns
-                       -Wincomplete-record-updates
-                       -Wredundant-constraints
-                       --write-ghc-environment-files=always
-  if impl(ghc >= 8.2)
-    ghc-options:       -fhide-source-paths
-  if impl(ghc >= 8.4)
-    ghc-options:       -Wmissing-export-lists
+  build-depends:
+    aeson >=1.0.0.0 && <3,
+    aeson-casing >=0.2.0.0 && <0.3.0.0,
+    base >=4.11.0.0 && <5,
 
-  default-language:    Haskell2010
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Widentities
+    -Wincomplete-uni-patterns
+    -Wincomplete-record-updates
+    -Wredundant-constraints
+
+  --write-ghc-environment-files=always
+  if impl(ghc >=8.2)
+    ghc-options: -fhide-source-paths
+
+  if impl(ghc >=8.4)
+    ghc-options: -Wmissing-export-lists
+  default-language: Haskell2010
 
 common lib-depends
-  build-depends:       SHA                    ^>= 1.6
-                     , base64                 >= 1.0
-                     , bytestring             >= 0.11.3 && < 0.13
-                     , containers             >= 0.6.5 && < 0.8
-                     , exceptions             >= 0.10.4 && < 0.11
-                     , hashable               >= 1.4.0 && < 1.5
-                     , http-client            >= 0.5.0    && < 0.8
-                     , http-client-tls        >= 0.2.0    && < 0.4
-                     , http-types             >= 0.10.0   && < 0.13
-                     , network-uri            >= 2.6.4 && < 2.7
-                     , profunctors            >= 5.6.2 && < 5.7
-                     , retry                  >= 0.8      && < 0.10
-                     , text                   >= 0.11.1.0 && < 3
-                     , time                   >= 1.11.1 && < 1.13
-                     , unordered-containers   >= 0.2.17 && < 0.3
+  build-depends:
+    SHA ^>=1.6,
+    base64 >=1.0,
+    bytestring >=0.11.3 && <0.13,
+    containers >=0.6.5 && <0.8,
+    exceptions >=0.10.4 && <0.11,
+    hashable >=1.4.0 && <1.5,
+    http-client >=0.5.0 && <0.8,
+    http-client-tls >=0.2.0 && <0.4,
+    http-types >=0.10.0 && <0.13,
+    network-uri >=2.6.4 && <2.7,
+    profunctors >=5.6.2 && <5.7,
+    retry >=0.8 && <0.10,
+    text >=0.11.1.0 && <3,
+    time >=1.11.1 && <1.13,
+    unordered-containers >=0.2.17 && <0.3,
 
 library
-  import:              common-options, lib-depends
-  hs-source-dirs:      src
-  exposed-modules:     Network.Matrix.Client
-                     , Network.Matrix.Client.Lens
-                     , Network.Matrix.Identity
-                     , Network.Matrix.Tutorial
-  other-modules:       Network.Matrix.Events
-                     , Network.Matrix.Internal
-                     , Network.Matrix.Room
+  import: common-options, lib-depends
+  hs-source-dirs: src
+  exposed-modules:
+    Network.Matrix.Client
+    Network.Matrix.Client.Lens
+    Network.Matrix.Identity
+    Network.Matrix.Tutorial
+
+  other-modules:
+    Network.Matrix.Events
+    Network.Matrix.Internal
+    Network.Matrix.Room
 
 test-suite unit
-  import:             common-options, lib-depends
-  type:               exitcode-stdio-1.0
-  hs-source-dirs:     test, src
-  main-is:            Spec.hs
-  build-depends:      base
-                    , bytestring
-                    , aeson-pretty
-                    , hspec >= 2
-                    , matrix-client
-                    , text
+  import: common-options, lib-depends
+  type: exitcode-stdio-1.0
+  hs-source-dirs:
+    test
+    src
+
+  main-is: Spec.hs
+  build-depends:
+    aeson-pretty,
+    base,
+    bytestring,
+    hspec >=2,
+    matrix-client,
+    text,
