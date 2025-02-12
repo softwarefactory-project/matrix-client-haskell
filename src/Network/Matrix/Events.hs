@@ -58,7 +58,7 @@ messageTextAttr :: MessageText -> [Pair]
 messageTextAttr msg =
     ["body" .= mtBody msg, "msgtype" .= mtType msg] <> format <> formattedBody
   where
-    omitNull k vM = maybe [] (\v -> [k .= v]) vM
+    omitNull k = maybe [] (\v -> [k .= v])
     format = omitNull "format" $ mtFormat msg
     formattedBody = omitNull "formatted_body" $ mtFormattedBody msg
 

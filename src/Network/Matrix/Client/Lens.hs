@@ -153,7 +153,7 @@ _RoomMessageText :: Lens' RoomMessage MessageText
 _RoomMessageText = lens getter setter
   where
     getter = coerce
-    setter _ t = RoomMessageText t
+    setter _ = RoomMessageText
 
 _EventRoomMessage :: Prism' Event RoomMessage
 _EventRoomMessage = prism' to from
