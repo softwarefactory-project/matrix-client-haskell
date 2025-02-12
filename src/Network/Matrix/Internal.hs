@@ -14,7 +14,7 @@ import Control.Monad.Catch (Handler (Handler), MonadMask)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Retry (RetryStatus (..))
 import qualified Control.Retry as Retry
-import Data.Aeson (FromJSON (..), FromJSONKey (..), Value (Object), encode, eitherDecode, object, withObject, (.:), (.:?), (.=))
+import Data.Aeson (FromJSON (..), FromJSONKey (..), Value (Object), eitherDecode, encode, object, withObject, (.:), (.:?), (.=))
 import Data.ByteString.Lazy (ByteString, toStrict)
 import Data.Hashable (Hashable)
 import Data.Maybe (catMaybes, fromMaybe)
@@ -29,30 +29,30 @@ import System.Environment (getEnv)
 import System.IO (stderr)
 
 newtype MatrixToken = MatrixToken Text
-newtype Username = Username { username :: Text }
-newtype DeviceId = DeviceId { deviceId :: Text }
-newtype InitialDeviceDisplayName = InitialDeviceDisplayName { initialDeviceDisplayName :: Text} 
+newtype Username = Username {username :: Text}
+newtype DeviceId = DeviceId {deviceId :: Text}
+newtype InitialDeviceDisplayName = InitialDeviceDisplayName {initialDeviceDisplayName :: Text}
 data LoginSecret = Password Text | Token Text
 
 data LoginResponse = LoginResponse
-  { lrUserId :: Text
-  , lrAccessToken :: Text
-  , lrHomeServer :: Text
-  , lrDeviceId :: Text
-  }
+    { lrUserId :: Text
+    , lrAccessToken :: Text
+    , lrHomeServer :: Text
+    , lrDeviceId :: Text
+    }
 
 instance FromJSON LoginResponse where
-  parseJSON = withObject "LoginResponse" $ \v -> do
-    userId' <- v .: "user_id"
-    accessToken' <- v .: "access_token"
-    homeServer' <- v .: "home_server"
-    deviceId' <- v .: "device_id"
-    pure $ LoginResponse userId' accessToken' homeServer' deviceId'
+    parseJSON = withObject "LoginResponse" $ \v -> do
+        userId' <- v .: "user_id"
+        accessToken' <- v .: "access_token"
+        homeServer' <- v .: "home_server"
+        deviceId' <- v .: "device_id"
+        pure $ LoginResponse userId' accessToken' homeServer' deviceId'
 
 getTokenFromEnv ::
-  -- | The envirnoment variable name
-  Text ->
-  IO MatrixToken
+    -- | The envirnoment variable name
+    Text ->
+    IO MatrixToken
 getTokenFromEnv env = MatrixToken . pack <$> getEnv (unpack env)
 
 mkManager :: IO HTTP.Manager
@@ -60,98 +60,104 @@ mkManager = HTTP.newManager tlsManagerSettings
 
 checkMatrixResponse :: HTTP.Request -> HTTP.Response HTTP.BodyReader -> IO ()
 checkMatrixResponse req res =
-  unless (200 <= code && code < 500) $ do
-    chunk <- HTTP.brReadSome (HTTP.responseBody res) 1024
-    throwResponseError req res chunk
+    unless (200 <= code && code < 500) $ do
+        chunk <- HTTP.brReadSome (HTTP.responseBody res) 1024
+        throwResponseError req res chunk
   where
     Status code _ = HTTP.responseStatus res
 
 throwResponseError :: HTTP.Request -> HTTP.Response body -> ByteString -> IO a
 throwResponseError req res chunk =
-  throwIO $ HTTP.HttpExceptionRequest req ex
+    throwIO $ HTTP.HttpExceptionRequest req ex
   where
     ex = HTTP.StatusCodeException (void res) (toStrict chunk)
 
 mkRequest' :: Text -> MatrixToken -> Bool -> Text -> IO HTTP.Request
 mkRequest' baseUrl (MatrixToken token) auth path = do
-  initRequest <- HTTP.parseUrlThrow (unpack $ baseUrl <> path)
-  pure $
-    initRequest
-      { HTTP.requestHeaders =
-          [("Content-Type", "application/json")] <> authHeaders,
-        HTTP.checkResponse = checkMatrixResponse
-      }
+    initRequest <- HTTP.parseUrlThrow (unpack $ baseUrl <> path)
+    pure $
+        initRequest
+            { HTTP.requestHeaders =
+                [("Content-Type", "application/json")] <> authHeaders
+            , HTTP.checkResponse = checkMatrixResponse
+            }
   where
     authHeaders =
-      [("Authorization", "Bearer " <> encodeUtf8 token) | auth]
+        [("Authorization", "Bearer " <> encodeUtf8 token) | auth]
 
 mkLoginRequest' :: Text -> Maybe DeviceId -> Maybe InitialDeviceDisplayName -> Username -> LoginSecret -> IO HTTP.Request
 mkLoginRequest' baseUrl did idn (Username name) secret' = do
-  let path = "/_matrix/client/r0/login"
-  initRequest <- HTTP.parseUrlThrow (unpack $ baseUrl <> path)
+    let path = "/_matrix/client/r0/login"
+    initRequest <- HTTP.parseUrlThrow (unpack $ baseUrl <> path)
 
-  let (secretKey, secret, secretType) = case secret' of
-        Password pass -> ("password", pass, "m.login.password")
-        Token tok -> ("token", tok, "m.login.token")
+    let (secretKey, secret, secretType) = case secret' of
+            Password pass -> ("password", pass, "m.login.password")
+            Token tok -> ("token", tok, "m.login.token")
 
-  let body = HTTP.RequestBodyLBS $ encode $ object $
-        [ "identifier" .= object [ "type" .= ("m.id.user" :: Text), "user" .= name ]
-        , secretKey  .= secret
-        , "type" .= (secretType :: Text)
-        ] <> catMaybes [ fmap (("device_id" .=) . deviceId) did
-                       , fmap (("initial_device_display_name" .=) . initialDeviceDisplayName) idn
-                       ]
+    let body =
+            HTTP.RequestBodyLBS $
+                encode $
+                    object $
+                        [ "identifier" .= object ["type" .= ("m.id.user" :: Text), "user" .= name]
+                        , secretKey .= secret
+                        , "type" .= (secretType :: Text)
+                        ]
+                            <> catMaybes
+                                [ fmap (("device_id" .=) . deviceId) did
+                                , fmap (("initial_device_display_name" .=) . initialDeviceDisplayName) idn
+                                ]
 
-  pure $ initRequest { HTTP.method = "POST", HTTP.requestBody = body, HTTP.requestHeaders = [("Content-Type", "application/json")] }
+    pure $ initRequest{HTTP.method = "POST", HTTP.requestBody = body, HTTP.requestHeaders = [("Content-Type", "application/json")]}
 
 mkLogoutRequest' :: Text -> MatrixToken -> IO HTTP.Request
 mkLogoutRequest' baseUrl (MatrixToken token) = do
-  let path = "/_matrix/client/r0/logout"
-  initRequest <- HTTP.parseUrlThrow (unpack $ baseUrl <> path)
-  let headers = [("Authorization", encodeUtf8 $ "Bearer " <> token)]
-  pure $ initRequest { HTTP.method = "POST", HTTP.requestHeaders = headers }
+    let path = "/_matrix/client/r0/logout"
+    initRequest <- HTTP.parseUrlThrow (unpack $ baseUrl <> path)
+    let headers = [("Authorization", encodeUtf8 $ "Bearer " <> token)]
+    pure $ initRequest{HTTP.method = "POST", HTTP.requestHeaders = headers}
 
-doRequest' :: FromJSON a => HTTP.Manager -> HTTP.Request -> IO (Either MatrixError a)
+doRequest' :: (FromJSON a) => HTTP.Manager -> HTTP.Request -> IO (Either MatrixError a)
 doRequest' manager request = do
-  response <- HTTP.httpLbs request manager
-  case decodeResp $ HTTP.responseBody response of
-    Right x -> pure x
-    Left e -> if statusIsSuccessful $ HTTP.responseStatus response
-      then fail e
-      else throwResponseError request response (HTTP.responseBody response)
+    response <- HTTP.httpLbs request manager
+    case decodeResp $ HTTP.responseBody response of
+        Right x -> pure x
+        Left e ->
+            if statusIsSuccessful $ HTTP.responseStatus response
+                then fail e
+                else throwResponseError request response (HTTP.responseBody response)
 
-decodeResp :: FromJSON a => ByteString -> Either String (Either MatrixError a)
+decodeResp :: (FromJSON a) => ByteString -> Either String (Either MatrixError a)
 decodeResp resp = case eitherDecode resp of
-  Right a -> Right $ pure a
-  Left e -> case eitherDecode resp of
-    Right me -> Right $ Left me
-    Left _ -> Left e
+    Right a -> Right $ pure a
+    Left e -> case eitherDecode resp of
+        Right me -> Right $ Left me
+        Left _ -> Left e
 
 newtype UserID = UserID Text
-  deriving (Show, Eq, Ord, Hashable, FromJSONKey)
+    deriving (Show, Eq, Ord, Hashable, FromJSONKey)
 
 instance FromJSON UserID where
-  parseJSON (Object v) = UserID <$> v .: "user_id"
-  parseJSON _ = mzero
+    parseJSON (Object v) = UserID <$> v .: "user_id"
+    parseJSON _ = mzero
 
 data MatrixError = MatrixError
-  { meErrcode :: Text,
-    meError :: Text,
-    meRetryAfterMS :: Maybe Int
-  }
-  deriving (Show, Eq)
+    { meErrcode :: Text
+    , meError :: Text
+    , meRetryAfterMS :: Maybe Int
+    }
+    deriving (Show, Eq)
 
 data MatrixException = MatrixRateLimit deriving (Show)
 
 instance Exception MatrixException
 
 instance FromJSON MatrixError where
-  parseJSON (Object v) =
-    MatrixError
-      <$> v .: "errcode"
-      <*> v .: "error"
-      <*> v .:? "retry_after_ms"
-  parseJSON _ = mzero
+    parseJSON (Object v) =
+        MatrixError
+            <$> v .: "errcode"
+            <*> v .: "error"
+            <*> v .:? "retry_after_ms"
+    parseJSON _ = mzero
 
 -- | 'MatrixIO' is a convenient type alias for server response
 type MatrixIO a = MatrixM IO a
@@ -160,48 +166,48 @@ type MatrixM m a = m (Either MatrixError a)
 
 -- | Retry a network action
 retryWithLog ::
-  (MonadMask m, MonadIO m) =>
-  -- | Maximum number of retry
-  Int ->
-  -- | A log function, can be used to measure errors
-  (Text -> m ()) ->
-  -- | The action to retry
-  MatrixM m a ->
-  MatrixM m a
+    (MonadMask m, MonadIO m) =>
+    -- | Maximum number of retry
+    Int ->
+    -- | A log function, can be used to measure errors
+    (Text -> m ()) ->
+    -- | The action to retry
+    MatrixM m a ->
+    MatrixM m a
 retryWithLog limit logRetry action =
-  Retry.recovering
-    (Retry.exponentialBackoff backoff <> Retry.limitRetries limit)
-    [handler, rateLimitHandler]
-    (const checkAction)
+    Retry.recovering
+        (Retry.exponentialBackoff backoff <> Retry.limitRetries limit)
+        [handler, rateLimitHandler]
+        (const checkAction)
   where
     checkAction = do
-      res <- action
-      case res of
-        Left (MatrixError "M_LIMIT_EXCEEDED" err delayMS) -> do
-          -- Reponse contains a retry_after_ms
-          logRetry $ "RateLimit: " <> err <> " (delay: " <> pack (show delayMS) <> ")"
-          liftIO $ threadDelay $ fromMaybe 5_000 delayMS * 1000
-          throw MatrixRateLimit
-        _ -> pure res
+        res <- action
+        case res of
+            Left (MatrixError "M_LIMIT_EXCEEDED" err delayMS) -> do
+                -- Reponse contains a retry_after_ms
+                logRetry $ "RateLimit: " <> err <> " (delay: " <> pack (show delayMS) <> ")"
+                liftIO $ threadDelay $ fromMaybe 5_000 delayMS * 1000
+                throw MatrixRateLimit
+            _ -> pure res
 
     backoff = 1000000 -- 1sec
     rateLimitHandler _ = Handler $ \case
-      MatrixRateLimit -> pure True
+        MatrixRateLimit -> pure True
     -- Log network error
     handler (RetryStatus num _ _) = Handler $ \case
-      HTTP.HttpExceptionRequest req ctx -> do
-        let url = decodeUtf8 (HTTP.host req) <> ":" <> pack (show (HTTP.port req)) <> decodeUtf8 (HTTP.path req)
-            arg = decodeUtf8 $ HTTP.queryString req
-            loc = if num == 0 then url <> arg else url
-        logRetry $
-          "NetworkFailure: "
-            <> pack (show num)
-            <> "/5 "
-            <> loc
-            <> " failed: "
-            <> pack (show ctx)
-        pure True
-      HTTP.InvalidUrlException _ _ -> pure False
+        HTTP.HttpExceptionRequest req ctx -> do
+            let url = decodeUtf8 (HTTP.host req) <> ":" <> pack (show (HTTP.port req)) <> decodeUtf8 (HTTP.path req)
+                arg = decodeUtf8 $ HTTP.queryString req
+                loc = if num == 0 then url <> arg else url
+            logRetry $
+                "NetworkFailure: "
+                    <> pack (show num)
+                    <> "/5 "
+                    <> loc
+                    <> " failed: "
+                    <> pack (show ctx)
+            pure True
+        HTTP.InvalidUrlException _ _ -> pure False
 
 retry :: (MonadIO m, MonadMask m) => MatrixM m a -> MatrixM m a
 retry = retryWithLog 7 (liftIO . hPutStrLn stderr)

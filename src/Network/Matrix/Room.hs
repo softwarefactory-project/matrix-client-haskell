@@ -12,24 +12,24 @@ import GHC.Generics (Generic)
 
 -- | https://matrix.org/docs/spec/client_server/latest#post-matrix-client-r0-createroom
 data RoomCreatePreset
-  = PrivateChat
-  | TrustedPrivateChat
-  | PublicChat
-  deriving (Eq, Show)
+    = PrivateChat
+    | TrustedPrivateChat
+    | PublicChat
+    deriving (Eq, Show)
 
 instance ToJSON RoomCreatePreset where
-  toJSON preset = String $ case preset of
-    PrivateChat -> "private_chat"
-    TrustedPrivateChat -> "trusted_private_chat"
-    PublicChat -> "public_chat"
+    toJSON preset = String $ case preset of
+        PrivateChat -> "private_chat"
+        TrustedPrivateChat -> "trusted_private_chat"
+        PublicChat -> "public_chat"
 
 data RoomCreateRequest = RoomCreateRequest
-  { rcrPreset :: RoomCreatePreset,
-    rcrRoomAliasName :: Text,
-    rcrName :: Text,
-    rcrTopic :: Text
-  }
-  deriving (Eq, Show, Generic)
+    { rcrPreset :: RoomCreatePreset
+    , rcrRoomAliasName :: Text
+    , rcrName :: Text
+    , rcrTopic :: Text
+    }
+    deriving (Eq, Show, Generic)
 
 instance ToJSON RoomCreateRequest where
-  toJSON = genericToJSON $ (aesonPrefix snakeCase) {Aeson.omitNothingFields = True}
+    toJSON = genericToJSON $ (aesonPrefix snakeCase){Aeson.omitNothingFields = True}
