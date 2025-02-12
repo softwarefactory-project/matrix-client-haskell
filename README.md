@@ -36,7 +36,7 @@ $ sudo dnf install -y ghc cabal-install && cabal update
 Run the tests:
 
 ```ShellSession
-$ cabal build all && cabal test all
+$ ./bin/run-tests
 ```
 
 Some tests requires a local matrix server, run integration service:

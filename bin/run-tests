@@ -1,0 +1,29 @@
+#!/bin/sh -e
+
+log() {
+  /bin/echo -e "\n\x1b[1;33m[+] $*\x1b[0m";
+}
+
+log "Building"
+cabal build -O0 --ghc-option=-Werror
+
+log "Testing"
+cabal test -O0 --test-show-details=direct
+cabal check
+
+log "Doctests"
+cabal repl --with-compiler=doctest --repl-options='-w -Wdefault -XOverloadedStrings'
+
+log "Formatting"
+fourmolu -i src/ test/
+cabal-gild --io matrix-client.cabal
+nixfmt flake.nix
+
+log "Linting"
+hlint src/ test/
+
+log "Check for diff"
+if [ ! -z "$(git status --porcelain)" ]; then
+  git status
+  exit 1
+fi
