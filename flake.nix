@@ -90,6 +90,7 @@
           buildInputs = with pkgs.myHaskellPackages; [
             cabal-install
             doctest
+            cabal-gild
             hlint
             pkgs.haskell-language-server
             pkgs.ghcid
