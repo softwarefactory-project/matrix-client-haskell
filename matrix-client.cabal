@@ -54,7 +54,7 @@ common common-options
 common lib-depends
   build-depends:
     SHA ^>=1.6,
-    base64 >=1.0,
+    base64 >=1.0 && <2,
     bytestring >=0.11.3 && <0.13,
     containers >=0.6.5 && <0.8,
     exceptions >=0.10.4 && <0.11,
