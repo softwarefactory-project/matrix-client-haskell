@@ -191,7 +191,7 @@ loginToken cred = do
     manager <- mkManager
     resp' <- doRequest' manager req
     case resp' of
-        Right LoginResponse{..} -> pure (ClientSession (lBaseUrl cred) (MatrixToken lrAccessToken) manager, (MatrixToken lrAccessToken))
+        Right LoginResponse{..} -> pure (ClientSession (lBaseUrl cred) (MatrixToken lrAccessToken) manager, MatrixToken lrAccessToken)
         Left err ->
             -- NOTE: There is nothing to recover after a failed login attempt
             fail $ show err
@@ -286,7 +286,7 @@ https://spec.matrix.org/v1.1/client-server-api/#get_matrixclientv3roomsroomidjoi
 getRoomMembers :: ClientSession -> RoomID -> MatrixIO (Map UserID User)
 getRoomMembers session (RoomID rid) = do
     request <- mkRequest session True $ "/_matrix/client/v3/rooms/" <> rid <> "/joined_members"
-    fmap (fmap coerce) $ doRequest @JoinedUsers session request
+    fmap coerce <$> doRequest @JoinedUsers session request
 
 newtype StateKey = StateKey T.Text
     deriving stock (Show)
@@ -596,7 +596,7 @@ setRoomAlias session (RoomAlias alias) (RoomID roomId) = do
     doRequestExpectEmptyResponse session "set room alias" $
         request
             { HTTP.method = "PUT"
-            , HTTP.requestBody = HTTP.RequestBodyLBS $ encode $ object [("room_id" .= roomId)]
+            , HTTP.requestBody = HTTP.RequestBodyLBS $ encode $ object ["room_id" .= roomId]
             }
 
 {- | Delete a mapping of room alias to room ID.
@@ -607,7 +607,7 @@ deleteRoomAlias session (RoomAlias alias) = do
     request <- mkRequest session True $ "/_matrix/client/v3/directory/room/" <> escapeUriComponent alias
     doRequestExpectEmptyResponse session "delete room alias" $ request{HTTP.method = "DELETE"}
 
-data ResolvedAliases = ResolvedAliases [RoomAlias]
+newtype ResolvedAliases = ResolvedAliases [RoomAlias]
 
 instance FromJSON ResolvedAliases where
     parseJSON = withObject "ResolvedAliases" $ \o -> do
@@ -788,7 +788,7 @@ https://spec.matrix.org/v1.1/client-server-api/#get_matrixclientv3directorylistr
 checkRoomVisibility :: ClientSession -> RoomID -> MatrixIO Visibility
 checkRoomVisibility session (RoomID rid) = do
     request <- mkRequest session True $ "/_matrix/client/v3/directory/list/room/" <> rid
-    fmap (fmap getVisibility) $ doRequest session request
+    fmap getVisibility <$> doRequest session request
 
 {- | Sets the visibility of a given room in the server’s public room directory.
 https://spec.matrix.org/v1.1/client-server-api/#put_matrixclientv3directorylistroomroomid
@@ -796,7 +796,7 @@ https://spec.matrix.org/v1.1/client-server-api/#put_matrixclientv3directorylistr
 setRoomVisibility :: ClientSession -> RoomID -> Visibility -> MatrixIO ()
 setRoomVisibility session (RoomID rid) visibility = do
     request <- mkRequest session True $ "/_matrix/client/v3/directory/list/room/" <> rid
-    let body = object $ [("visibility", toJSON visibility)]
+    let body = object [("visibility", toJSON visibility)]
     doRequestExpectEmptyResponse session "set room visibility" $
         request
             { HTTP.method = "PUT"
@@ -1119,7 +1119,7 @@ instance Show Presence where
         Unavailable -> "unavailable"
 
 instance ToJSON Presence where
-    toJSON ef = String . tshow $ ef
+    toJSON = String . tshow
 
 instance FromJSON Presence where
     parseJSON v = case v of

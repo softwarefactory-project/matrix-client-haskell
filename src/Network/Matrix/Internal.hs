@@ -190,7 +190,7 @@ retryWithLog limit logRetry action =
                 throw MatrixRateLimit
             _ -> pure res
 
-    backoff = 1000000 -- 1sec
+    backoff = 1_000_000 -- 1sec
     rateLimitHandler _ = Handler $ \case
         MatrixRateLimit -> pure True
     -- Log network error
