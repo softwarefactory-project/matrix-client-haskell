@@ -37,7 +37,7 @@ data LoginSecret = Password Text | Token Text
 data LoginResponse = LoginResponse
     { lrUserId :: Text
     , lrAccessToken :: Text
-    , lrHomeServer :: Text
+    , lrHomeServer :: Maybe Text
     , lrDeviceId :: Text
     }
 
@@ -45,7 +45,7 @@ instance FromJSON LoginResponse where
     parseJSON = withObject "LoginResponse" $ \v -> do
         userId' <- v .: "user_id"
         accessToken' <- v .: "access_token"
-        homeServer' <- v .: "home_server"
+        homeServer' <- v .:? "home_server"
         deviceId' <- v .: "device_id"
         pure $ LoginResponse userId' accessToken' homeServer' deviceId'
 
