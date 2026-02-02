@@ -7,6 +7,7 @@ module Network.Matrix.Events (
     RoomMessage (..),
     Event (..),
     EventID (..),
+    Annotation (..),
     eventType,
 )
 where
@@ -62,6 +63,9 @@ messageTextAttr msg =
     format = omitNull "format" $ mtFormat msg
     formattedBody = omitNull "formatted_body" $ mtFormattedBody msg
 
+reactionAttr :: [Pair]
+reactionAttr = [ "msg_type" .= ("m.reaction" :: Text) ]
+
 instance ToJSON MessageText where
     toJSON = object . messageTextAttr
 
@@ -87,11 +91,13 @@ data RelatedMessage = RelatedMessage
     deriving (Show, Eq)
 
 data Event
-    = EventRoomMessage RoomMessage
+    = EventRoomMessage RoomMessage  -- | m.room.message
     | -- | A reply defined by the parent event id and the reply message
       EventRoomReply EventID RoomMessage
     | -- | An edit defined by the original message and the new message
       EventRoomEdit (EventID, RoomMessage) RoomMessage
+    | -- https://spec.matrix.org/latest/client-server-api/#mreaction
+      EventReaction EventID Annotation
     | EventUnknown Object
     deriving (Eq, Show)
 
@@ -116,6 +122,17 @@ instance ToJSON Event where
                     , "m.new_content" .= object (roomMessageAttr newMsg)
                     ]
              in object $ editAttr <> roomMessageAttr msg
+        -- | https://spec.matrix.org/latest/client-server-api/#mreaction
+        EventReaction (EventID eventID) (Annotation annotationText) ->
+            let attr =
+                    [ "m.relates_to"
+                        .= object
+                            [ "rel_type" .= ("m.annotation" :: Text)
+                            , "event_id" .= eventID
+                            , "key" .= annotationText
+                            ]
+                    ]
+             in object $ attr <> reactionAttr
         EventUnknown v -> Object v
 
 instance FromJSON Event where
@@ -126,18 +143,23 @@ instance FromJSON Event where
         parseRelated = do
             relateM <- content .: "m.relates_to"
             case relateM of
-                Object relate -> parseReply relate <|> parseReplace relate
+                Object relate -> parseReply relate
+                             <|> parseByRelType relate
                 _ -> mzero
         parseReply relate =
             EventRoomReply <$> relate .: "m.in_reply_to" <*> parseJSON (Object content)
-        parseReplace relate = do
+        parseByRelType relate = do
             rel_type <- relate .: "rel_type"
-            if rel_type == ("m.replace" :: Text)
-                then do
+            case (rel_type :: Text) of
+                "m.replace" -> do
                     ev <- EventID <$> relate .: "event_id"
                     msg <- parseJSON (Object content)
                     EventRoomEdit (ev, msg) <$> content .: "m.new_content"
-                else mzero
+                "m.annotation" -> do
+                    ev <- EventID <$> relate .: "event_id"
+                    annotation <- Annotation <$> relate .: "key"
+                    pure $ EventReaction ev annotation
+                _ -> mzero
     parseJSON _ = mzero
 
 eventType :: Event -> Text
@@ -145,7 +167,10 @@ eventType event = case event of
     EventRoomMessage _ -> "m.room.message"
     EventRoomReply _ _ -> "m.room.message"
     EventRoomEdit _ _ -> "m.room.message"
+    EventReaction _ _ -> "m.reaction"   -- https://spec.matrix.org/latest/client-server-api/#mreaction
     EventUnknown _ -> error $ "Event is not implemented: " <> show event
+
+newtype Annotation = Annotation {unAnnotation :: Text} deriving (Show, Eq, Ord)
 
 newtype EventID = EventID {unEventID :: Text} deriving (Show, Eq, Ord)
 

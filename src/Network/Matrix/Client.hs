@@ -1228,6 +1228,7 @@ mkReply room re mt =
             EventRoomMessage (RoomMessageText oldMT) -> updateText oldMT
             EventRoomReply _ (RoomMessageText oldMT) -> updateText oldMT
             EventRoomEdit _ (RoomMessageText oldMT) -> updateText oldMT
+            EventReaction _ _ -> error $ "Can't reply to reaction"
             EventUnknown x -> error $ "Can't reply to " <> show x
      in EventRoomReply eventID (RoomMessageText newMessage)
 
