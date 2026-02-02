@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.7.0
+
+- Improve login response by making the home server field optional [#45](https://github.com/softwarefactory-project/matrix-client-haskell/pull/45)
+
 ## 0.1.6.1
 
 - Use Unpadded base64 encoding, as it was done in v0.1.5.0
