@@ -96,6 +96,13 @@ spec = describe "unit tests" $ do
                 mtBody srcMsg `shouldBe` " * > :typo"
                 mtBody message `shouldBe` "> :hello"
             _ -> error $ show resp
+    it "decode reaction" $ do
+        resp <- decodeResp <$> BS.readFile "test/data/reaction.json"
+        case resp of
+            Right (Right (EventReaction eventID (Annotation annText))) -> do
+                eventID `shouldBe` EventID "$eventID"
+                annText `shouldBe` "\128077"    -- :+1:
+            _ -> error $ show resp
     it "encode room message" $
         encodePretty (RoomMessageText (MessageText "Hello" TextType Nothing Nothing))
             `shouldBe` "{\"body\":\"Hello\",\"msgtype\":\"m.text\"}"
