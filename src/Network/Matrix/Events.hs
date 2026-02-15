@@ -91,12 +91,13 @@ data RelatedMessage = RelatedMessage
     deriving (Show, Eq)
 
 data Event
-    = EventRoomMessage RoomMessage  -- | m.room.message
+    = -- | [`m.room.message`](https://spec.matrix.org/v1.17/client-server-api/#mroommessage)
+      EventRoomMessage RoomMessage
     | -- | A reply defined by the parent event id and the reply message
       EventRoomReply EventID RoomMessage
     | -- | An edit defined by the original message and the new message
       EventRoomEdit (EventID, RoomMessage) RoomMessage
-    | -- https://spec.matrix.org/latest/client-server-api/#mreaction
+    | -- [`m.reaction`](https://spec.matrix.org/v1.17/client-server-api/#mreaction)
       EventReaction EventID Annotation
     | EventUnknown Object
     deriving (Eq, Show)
@@ -122,7 +123,6 @@ instance ToJSON Event where
                     , "m.new_content" .= object (roomMessageAttr newMsg)
                     ]
              in object $ editAttr <> roomMessageAttr msg
-        -- | https://spec.matrix.org/latest/client-server-api/#mreaction
         EventReaction (EventID eventID) (Annotation annotationText) ->
             let attr =
                     [ "m.relates_to"
@@ -140,21 +140,27 @@ instance FromJSON Event where
         parseRelated <|> parseMessage <|> pure (EventUnknown content)
       where
         parseMessage = EventRoomMessage <$> parseJSON (Object content)
+        -- https://spec.matrix.org/v1.17/client-server-api/#forming-relationships-between-events
         parseRelated = do
             relateM <- content .: "m.relates_to"
             case relateM of
                 Object relate -> parseReply relate
                              <|> parseByRelType relate
                 _ -> mzero
+        -- rich replies is a special kind of a relationship not using rel_type
+        -- https://spec.matrix.org/v1.17/client-server-api/#rich-replies
         parseReply relate =
             EventRoomReply <$> relate .: "m.in_reply_to" <*> parseJSON (Object content)
+        -- relationships using rel_type
         parseByRelType relate = do
             rel_type <- relate .: "rel_type"
             case (rel_type :: Text) of
+                -- https://spec.matrix.org/v1.17/client-server-api/#event-replacements
                 "m.replace" -> do
                     ev <- EventID <$> relate .: "event_id"
                     msg <- parseJSON (Object content)
                     EventRoomEdit (ev, msg) <$> content .: "m.new_content"
+                -- https://spec.matrix.org/v1.17/client-server-api/#mannotation-relationship-type
                 "m.annotation" -> do
                     ev <- EventID <$> relate .: "event_id"
                     annotation <- Annotation <$> relate .: "key"
