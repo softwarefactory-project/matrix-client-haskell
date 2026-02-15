@@ -1,0 +1,7 @@
+{
+  "m.relates_to": {
+    "event_id": "$eventID",
+    "key": "👍",
+    "rel_type": "m.annotation"
+  }
+}
