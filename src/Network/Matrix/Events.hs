@@ -64,7 +64,7 @@ messageTextAttr msg =
     formattedBody = omitNull "formatted_body" $ mtFormattedBody msg
 
 reactionAttr :: [Pair]
-reactionAttr = [ "msg_type" .= ("m.reaction" :: Text) ]
+reactionAttr = ["msg_type" .= ("m.reaction" :: Text)]
 
 instance ToJSON MessageText where
     toJSON = object . messageTextAttr
@@ -144,8 +144,9 @@ instance FromJSON Event where
         parseRelated = do
             relateM <- content .: "m.relates_to"
             case relateM of
-                Object relate -> parseReply relate
-                             <|> parseByRelType relate
+                Object relate ->
+                    parseReply relate
+                        <|> parseByRelType relate
                 _ -> mzero
         -- rich replies is a special kind of a relationship not using rel_type
         -- https://spec.matrix.org/v1.17/client-server-api/#rich-replies
@@ -173,7 +174,7 @@ eventType event = case event of
     EventRoomMessage _ -> "m.room.message"
     EventRoomReply _ _ -> "m.room.message"
     EventRoomEdit _ _ -> "m.room.message"
-    EventReaction _ _ -> "m.reaction"   -- https://spec.matrix.org/latest/client-server-api/#mreaction
+    EventReaction _ _ -> "m.reaction" -- https://spec.matrix.org/latest/client-server-api/#mreaction
     EventUnknown _ -> error $ "Event is not implemented: " <> show event
 
 newtype Annotation = Annotation {unAnnotation :: Text} deriving (Show, Eq, Ord)
