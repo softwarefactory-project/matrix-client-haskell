@@ -101,7 +101,7 @@ spec = describe "unit tests" $ do
         case resp of
             Right (Right (EventReaction eventID (Annotation annText))) -> do
                 eventID `shouldBe` EventID "$eventID"
-                annText `shouldBe` "\128077"    -- :+1:
+                annText `shouldBe` "\128077" -- :+1:
             _ -> error $ show resp
     it "encode room message" $
         encodePretty (RoomMessageText (MessageText "Hello" TextType Nothing Nothing))
