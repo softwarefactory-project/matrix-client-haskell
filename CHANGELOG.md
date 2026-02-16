@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.8.0
+
+- Add support for reaction [#48](https://github.com/softwarefactory-project/matrix-client-haskell/pull/48)
+
 ## 0.1.7.0
 
 - Improve login response by making the home server field optional [#45](https://github.com/softwarefactory-project/matrix-client-haskell/pull/45)
