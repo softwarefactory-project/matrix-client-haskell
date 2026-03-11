@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
@@ -7,6 +8,7 @@
 -- | This module contains low-level HTTP utility
 module Network.Matrix.Internal where
 
+import GHC.Generics (Generic)
 import Control.Concurrent (threadDelay)
 import Control.Exception (Exception, throw, throwIO)
 import Control.Monad (mzero, unless, void)
@@ -14,7 +16,7 @@ import Control.Monad.Catch (Handler (Handler), MonadMask)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Retry (RetryStatus (..))
 import qualified Control.Retry as Retry
-import Data.Aeson (FromJSON (..), FromJSONKey (..), Value (Object), eitherDecode, encode, object, withObject, (.:), (.:?), (.=))
+import Data.Aeson (FromJSON (..), FromJSONKey (..), Value (Object), eitherDecode, encode, object, (.:), (.=), defaultOptions, Options (..), camelTo2, genericParseJSON)
 import Data.ByteString.Lazy (ByteString, toStrict)
 import Data.Hashable (Hashable)
 import Data.Maybe (catMaybes, fromMaybe)
@@ -27,6 +29,7 @@ import Network.HTTP.Types (Status (..))
 import Network.HTTP.Types.Status (statusIsSuccessful)
 import System.Environment (getEnv)
 import System.IO (stderr)
+import Data.Char (isUpper)
 
 newtype MatrixToken = MatrixToken Text
 newtype Username = Username {username :: Text}
@@ -34,20 +37,18 @@ newtype DeviceId = DeviceId {deviceId :: Text}
 newtype InitialDeviceDisplayName = InitialDeviceDisplayName {initialDeviceDisplayName :: Text}
 data LoginSecret = Password Text | Token Text
 
+-- https://spec.matrix.org/v1.17/client-server-api/#post_matrixclientv3login
 data LoginResponse = LoginResponse
-    { lrUserId :: Text
-    , lrAccessToken :: Text
-    , lrHomeServer :: Maybe Text
+    { lrAccessToken :: Text
     , lrDeviceId :: Text
-    }
+    , lrExpiresInMs :: Maybe Int    -- Added in v1.3
+    , lrHomeServer :: Maybe Text
+    , lrRefreshToken :: Maybe Text  -- Added in v1.3
+    , lrUserId :: Text
+    } deriving (Generic, Show)
 
 instance FromJSON LoginResponse where
-    parseJSON = withObject "LoginResponse" $ \v -> do
-        userId' <- v .: "user_id"
-        accessToken' <- v .: "access_token"
-        homeServer' <- v .:? "home_server"
-        deviceId' <- v .: "device_id"
-        pure $ LoginResponse userId' accessToken' homeServer' deviceId'
+    parseJSON = genericParseJSON aesonOptions
 
 getTokenFromEnv ::
     -- | The envirnoment variable name
@@ -85,9 +86,10 @@ mkRequest' baseUrl (MatrixToken token) auth path = do
     authHeaders =
         [("Authorization", "Bearer " <> encodeUtf8 token) | auth]
 
-mkLoginRequest' :: Text -> Maybe DeviceId -> Maybe InitialDeviceDisplayName -> Username -> LoginSecret -> IO HTTP.Request
-mkLoginRequest' baseUrl did idn (Username name) secret' = do
-    let path = "/_matrix/client/r0/login"
+-- https://spec.matrix.org/v1.17/client-server-api/#post_matrixclientv3login
+mkLoginRequest' :: Text -> Maybe DeviceId -> Maybe InitialDeviceDisplayName -> Bool -> Username -> LoginSecret -> IO HTTP.Request
+mkLoginRequest' baseUrl did idn enableRefreshTokens (Username name) secret' = do
+    let path = "/_matrix/client/v3/login"
     initRequest <- HTTP.parseUrlThrow (unpack $ baseUrl <> path)
 
     let (secretKey, secret, secretType) = case secret' of
@@ -100,6 +102,7 @@ mkLoginRequest' baseUrl did idn (Username name) secret' = do
                     object $
                         [ "identifier" .= object ["type" .= ("m.id.user" :: Text), "user" .= name]
                         , secretKey .= secret
+                        , "refresh_token" .= enableRefreshTokens    -- Added in v1.3
                         , "type" .= (secretType :: Text)
                         ]
                             <> catMaybes
@@ -111,7 +114,7 @@ mkLoginRequest' baseUrl did idn (Username name) secret' = do
 
 mkLogoutRequest' :: Text -> MatrixToken -> IO HTTP.Request
 mkLogoutRequest' baseUrl (MatrixToken token) = do
-    let path = "/_matrix/client/r0/logout"
+    let path = "/_matrix/client/v3/logout"
     initRequest <- HTTP.parseUrlThrow (unpack $ baseUrl <> path)
     let headers = [("Authorization", encodeUtf8 $ "Bearer " <> token)]
     pure $ initRequest{HTTP.method = "POST", HTTP.requestHeaders = headers}
@@ -145,19 +148,14 @@ data MatrixError = MatrixError
     , meError :: Text
     , meRetryAfterMS :: Maybe Int
     }
-    deriving (Show, Eq)
+    deriving (Generic, Show, Eq)
+
+instance FromJSON MatrixError where
+    parseJSON = genericParseJSON aesonOptions
 
 data MatrixException = MatrixRateLimit deriving (Show)
 
 instance Exception MatrixException
-
-instance FromJSON MatrixError where
-    parseJSON (Object v) =
-        MatrixError
-            <$> v .: "errcode"
-            <*> v .: "error"
-            <*> v .:? "retry_after_ms"
-    parseJSON _ = mzero
 
 -- | 'MatrixIO' is a convenient type alias for server response
 type MatrixIO a = MatrixM IO a
@@ -211,3 +209,18 @@ retryWithLog limit logRetry action =
 
 retry :: (MonadIO m, MonadMask m) => MatrixM m a -> MatrixM m a
 retry = retryWithLog 7 (liftIO . hPutStrLn stderr)
+
+-------------------------------------------------------------------------------
+-- Utils
+
+aesonOptions :: Options
+aesonOptions = defaultOptions
+    { fieldLabelModifier = camelTo2 '_' . dropPrefix
+    , omitNothingFields = True
+    }
+    where
+        -- drops lower case prefix
+        dropPrefix :: String -> String
+        dropPrefix []                 = []
+        dropPrefix (x:xs) | isUpper x = x : xs
+                          | otherwise = dropPrefix xs

@@ -141,8 +141,6 @@ import Control.Applicative
 import Control.Monad (mzero)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Data.Aeson (FromJSON (..), ToJSON (..), Value (Object, String), encode, genericParseJSON, genericToJSON, object, withObject, withText, (.:), (.:?), (.=))
-import qualified Data.Aeson as Aeson
-import Data.Aeson.Casing (aesonPrefix, snakeCase)
 import Data.Aeson.Types (Parser)
 import Data.Bifunctor (bimap)
 import qualified Data.ByteString as B
@@ -177,8 +175,9 @@ data LoginCredentials = LoginCredentials
     }
 
 mkLoginRequest :: LoginCredentials -> IO HTTP.Request
-mkLoginRequest LoginCredentials{..} =
-    mkLoginRequest' lBaseUrl lDeviceId lInitialDeviceDisplayName lUsername lLoginSecret
+mkLoginRequest LoginCredentials{..} = let
+        enableRefreshTokens = False
+    in mkLoginRequest' lBaseUrl lDeviceId lInitialDeviceDisplayName enableRefreshTokens lUsername lLoginSecret
 
 -- | 'login' allows you to generate a session token.
 login :: LoginCredentials -> IO ClientSession
@@ -925,9 +924,6 @@ defaultEventFilter = EventFilter Nothing Nothing Nothing Nothing Nothing
 -- | A filter that should match nothing
 eventFilterAll :: EventFilter
 eventFilterAll = defaultEventFilter{efLimit = Just 0, efNotTypes = Just ["*"]}
-
-aesonOptions :: Aeson.Options
-aesonOptions = (aesonPrefix snakeCase){Aeson.omitNothingFields = True}
 
 instance ToJSON EventFilter where
     toJSON = genericToJSON aesonOptions
