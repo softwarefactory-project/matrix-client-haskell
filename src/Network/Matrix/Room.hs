@@ -4,9 +4,8 @@
 -- | Matrix room related data types
 module Network.Matrix.Room (RoomCreatePreset (..), RoomCreateRequest (..)) where
 
+import Network.Matrix.Internal (aesonOptions)
 import Data.Aeson (ToJSON (..), Value (..), genericToJSON)
-import qualified Data.Aeson as Aeson
-import Data.Aeson.Casing (aesonPrefix, snakeCase)
 import Data.Text (Text)
 import GHC.Generics (Generic)
 
@@ -32,4 +31,4 @@ data RoomCreateRequest = RoomCreateRequest
     deriving (Eq, Show, Generic)
 
 instance ToJSON RoomCreateRequest where
-    toJSON = genericToJSON $ (aesonPrefix snakeCase){Aeson.omitNothingFields = True}
+    toJSON = genericToJSON aesonOptions
