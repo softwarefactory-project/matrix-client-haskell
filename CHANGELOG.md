@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.9.0
+
+- Add support for login API v3 [#50](https://github.com/softwarefactory-project/matrix-client-haskell/pull/50)
+
 ## 0.1.8.0
 
 - Add support for reaction [#48](https://github.com/softwarefactory-project/matrix-client-haskell/pull/48)
